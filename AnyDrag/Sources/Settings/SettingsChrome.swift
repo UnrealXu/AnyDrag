@@ -263,16 +263,19 @@ struct SettingsRootView: View {
 
     private var brand: some View {
         HStack(spacing: 10) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable().frame(width: 34, height: 34)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            // Pre-scaled to exactly 34pt (AppLogo34) from the 1024px icon, so it
+            // draws 1:1 instead of SwiftUI resampling the app icon at draw time.
+            Image("AppLogo34")
             VStack(alignment: .leading, spacing: 1) {
                 Text("AnyDrag").font(.system(size: 14, weight: .bold))
                 Text("v\(appVersion)").font(.system(size: 11)).foregroundColor(.secondary)
             }
             Spacer()
         }
-        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+        // The logo artwork carries 3pt of transparent margin inside its 34pt
+        // frame; 13 instead of 16 puts its visible edge on the same line as the
+        // row icons below (measured: both at 16pt from the window edge).
+        .padding(.leading, 13).padding(.trailing, 16).padding(.top, 16).padding(.bottom, 12)
     }
 
     private var statusFooter: some View {

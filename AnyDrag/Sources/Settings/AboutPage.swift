@@ -24,9 +24,8 @@ struct AboutPage: View {
         Form {
             Section {
                 VStack(spacing: 10) {
-                    Image(nsImage: NSApp.applicationIconImage)
-                        .resizable().frame(width: 84, height: 84)
-                        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    // Pre-scaled to exactly 84pt, like the sidebar's AppLogo34.
+                    Image("AppLogo84")
                     Text("AnyDrag").font(.title2).fontWeight(.bold)
                     Text(versionString).font(.callout).foregroundStyle(.secondary)
                 }
