@@ -9,14 +9,16 @@ final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem!
     private let dragEngine: DragEngine
     private let updateController: UpdateController
-    private lazy var preferencesWindowController = PreferencesWindowController(
-        dragEngine: dragEngine,
-        updateController: updateController
-    )
+    private let preferencesWindowController: PreferencesWindowController
 
-    init(dragEngine: DragEngine, updateController: UpdateController) {
+    /// The Settings window is owned by the AppDelegate (it has to outlive the
+    /// status item: in `AppIconMode.dock` there is no status item at all).
+    init(dragEngine: DragEngine,
+         updateController: UpdateController,
+         preferencesWindowController: PreferencesWindowController) {
         self.dragEngine = dragEngine
         self.updateController = updateController
+        self.preferencesWindowController = preferencesWindowController
         super.init()
         setupStatusItem()
         NotificationCenter.default.addObserver(
@@ -29,6 +31,18 @@ final class MenuBarController: NSObject {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        // Dropping the controller (user switched to Dock-only) must take the
+        // icon with it; NSStatusItem is not released by the status bar on its
+        // own.
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+    }
+
+    /// Force the icon back on screen. macOS persists "Allow in the Menu Bar"
+    /// off-state per item (and reportedly does not always restore it — the
+    /// exact trap in issue #52); when the user explicitly picks a mode that
+    /// includes the menu bar we override that stale state.
+    func forceVisible() {
+        statusItem.isVisible = true
     }
 
     @objc private func languageChanged(_ note: Notification) {

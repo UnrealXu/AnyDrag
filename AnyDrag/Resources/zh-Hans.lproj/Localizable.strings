@@ -127,6 +127,29 @@
 "accessibility.notGranted" = "未授权";
 "accessibility.grantButton" = "授权";
 
+/* Settings — App icon (menu bar / Dock), issue #52 */
+"appIcon.title" = "App 图标显示在";
+"appIcon.menuBar" = "菜单栏";
+"appIcon.dock" = "Dock";
+"appIcon.both" = "菜单栏和 Dock";
+"appIcon.hint" = "无论选哪种，AnyDrag 都会继续在后台工作。要再次打开这个窗口，点一下 Dock 图标，或者再启动一次 AnyDrag。";
+
+/* Main menu (shown when the Dock icon is on) */
+"menu.hideApp" = "隐藏 %@";
+"menu.hideOthers" = "隐藏其他";
+"menu.showAll" = "全部显示";
+"menu.edit" = "编辑";
+"menu.undo" = "撤销";
+"menu.redo" = "重做";
+"menu.cut" = "剪切";
+"menu.copy" = "拷贝";
+"menu.paste" = "粘贴";
+"menu.selectAll" = "全选";
+"menu.window" = "窗口";
+"menu.minimize" = "最小化";
+"menu.zoom" = "缩放";
+"menu.bringAllToFront" = "前置全部窗口";
+
 /* Settings — Launch at Login */
 "Launch at Login" = "登录时启动";
 

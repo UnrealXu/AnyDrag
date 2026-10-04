@@ -127,6 +127,29 @@
 "accessibility.notGranted" = "Not Granted";
 "accessibility.grantButton" = "Authorize";
 
+/* Settings — App icon (menu bar / Dock), issue #52 */
+"appIcon.title" = "Show App Icon In";
+"appIcon.menuBar" = "Menu Bar";
+"appIcon.dock" = "Dock";
+"appIcon.both" = "Menu Bar and Dock";
+"appIcon.hint" = "AnyDrag keeps working in the background either way. To open this window again, click the Dock icon or launch AnyDrag a second time.";
+
+/* Main menu (shown when the Dock icon is on) */
+"menu.hideApp" = "Hide %@";
+"menu.hideOthers" = "Hide Others";
+"menu.showAll" = "Show All";
+"menu.edit" = "Edit";
+"menu.undo" = "Undo";
+"menu.redo" = "Redo";
+"menu.cut" = "Cut";
+"menu.copy" = "Copy";
+"menu.paste" = "Paste";
+"menu.selectAll" = "Select All";
+"menu.window" = "Window";
+"menu.minimize" = "Minimize";
+"menu.zoom" = "Zoom";
+"menu.bringAllToFront" = "Bring All to Front";
+
 /* Settings — Launch at Login */
 "Launch at Login" = "Launch at Login";
 

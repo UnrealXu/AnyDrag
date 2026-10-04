@@ -48,6 +48,23 @@ struct GeneralPage: View {
                 }
             }
 
+            // ─── App icon: menu bar / Dock (issue #52) ───────────────
+            Section {
+                Picker(selection: Binding(
+                    get: { store.appIconMode },
+                    set: { store.setAppIconMode($0) }
+                )) {
+                    ForEach(AppIconMode.allCases, id: \.self) { mode in
+                        Text(L(mode.titleKey)).tag(mode)
+                    }
+                } label: {
+                    iconLabel("dock.rectangle", .indigo, L("appIcon.title"))
+                }
+                Text(L("appIcon.hint"))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // ─── Diagnostics (advanced) ─────────────────────────────
             Section {
                 Text(L("diagnostics.advanced.note"))

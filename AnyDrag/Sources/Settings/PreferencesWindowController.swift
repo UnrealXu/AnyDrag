@@ -65,6 +65,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var accessibilityGranted: Bool
     @Published private(set) var languageCode: String?   // nil = follow system
     @Published private(set) var analyticsEnabled: Bool
+    @Published private(set) var appIconMode: AppIconMode
     @Published private(set) var blacklist: [BlacklistedApp]
     @Published private(set) var perAppOffsets: [AppTitleBarOffset]
 
@@ -104,6 +105,7 @@ final class SettingsStore: ObservableObject {
         let d = UserDefaults.standard
         analyticsEnabled = (d.object(forKey: Preferences.Key.analyticsEnabled) == nil)
             ? true : d.bool(forKey: Preferences.Key.analyticsEnabled)
+        appIconMode = Preferences.appIconMode()
         blacklist = Preferences.blacklistedApps()
         perAppOffsets = Preferences.perAppTitleBarOffsets()
 
@@ -324,6 +326,15 @@ final class SettingsStore: ObservableObject {
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
     }
 
+    // MARK: App icon (menu bar / Dock)
+
+    func setAppIconMode(_ mode: AppIconMode) {
+        appIconMode = mode
+        // Persists, tracks, and posts .anyDragAppIconModeChanged; the
+        // AppDelegate owns the status item + activation policy and applies it.
+        Preferences.setAppIconMode(mode)
+    }
+
     // MARK: Analytics opt-out
 
     func setAnalyticsEnabled(_ on: Bool) {
@@ -519,13 +530,23 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
     }
 
+    var isVisible: Bool { window.isVisible }
+
     /// Bring the window to front, re-syncing any state that can change while
     /// it's closed (permission grant, login-item toggle made elsewhere).
-    func show() {
+    /// `page` jumps the sidebar (the main menu's "About AnyDrag" uses it).
+    func show(page: SettingsPage? = nil) {
         store.refreshExternalState()
-        if !window.isVisible { window.center() }
+        if let page { store.page = page }
+        // makeKeyAndOrderFront is a no-op on a miniaturized window, and the
+        // Window menu / ⌘M now make that state reachable.
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        } else {
+            if !window.isVisible { window.center() }
+            window.makeKeyAndOrderFront(nil)
+        }
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

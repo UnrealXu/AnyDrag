@@ -98,6 +98,11 @@ enum Preferences {
         // Analytics opt-out. Absent or `true` = enabled; `false` = user disabled.
         static let analyticsEnabled = "AnyDragAnalyticsEnabled"
 
+        // Where the app shows its icon: menu bar, Dock, or both (issue #52).
+        // Stored as `AppIconMode.rawValue`; absent or unknown = menu bar only,
+        // which is what every release before this key shipped with.
+        static let appIconMode = "AnyDragAppIconMode"
+
         // Tracks the previously-installed CFBundleShortVersionString so we can
         // fire `update_installed` exactly once on the first launch after an
         // upgrade. Absent on first install.
@@ -197,6 +202,24 @@ enum Preferences {
     /// the overlay on-screen near an edge and glides the cursor to its center;
     /// FALSE centers it on the cursor with no clamping and no cursor warp.
     static let defaultOverlayEdgeSafeEnabled = true
+
+    // MARK: - App icon mode (menu bar / Dock)
+
+    static func appIconMode() -> AppIconMode {
+        let raw = UserDefaults.standard.string(forKey: Key.appIconMode) ?? ""
+        return AppIconMode(rawValue: raw) ?? .menuBar
+    }
+
+    /// Persist and broadcast `.anyDragAppIconModeChanged` so the AppDelegate
+    /// (which owns the status item and the activation policy) applies it live.
+    static func setAppIconMode(_ mode: AppIconMode) {
+        let previous = appIconMode()
+        UserDefaults.standard.set(mode.rawValue, forKey: Key.appIconMode)
+        if previous != mode {
+            Analytics.trackPreferenceChanged(key: "app_icon_mode", value: mode.rawValue)
+        }
+        NotificationCenter.default.post(name: .anyDragAppIconModeChanged, object: nil)
+    }
 
     /// Read the persisted language override and install it. Call before any
     /// localized string is read in the launch path so the very first reads see
