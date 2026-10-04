@@ -21,6 +21,9 @@
 "tile.restore" = "恢复原始大小";
 "tile.restore.unavailable" = "没有可恢复的尺寸 —— AnyDrag 还没动过这个窗口";
 "tile.minimize" = "最小化";
+"windowAction.close" = "关闭窗口";
+"windowAction.minimize" = "最小化窗口";
+"windowAction.fullScreen" = "全屏";
 
 /* Settings — window titles */
 "AnyDrag Settings" = "设置";

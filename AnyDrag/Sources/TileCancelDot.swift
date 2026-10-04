@@ -118,9 +118,12 @@ func bentoDynamicColor(dark: NSColor, light: NSColor) -> NSColor {
 // panel, not on the cards, not on the tiles. Each display card is its own
 // piece of `.popover` glass with its own rounded mask, and the panel window
 // is transparent between them, so the window server's shadow follows each
-// island's shape. The current display is marked WITHOUT a border: an accent
-// dot + accent name in its title row, while the other cards are dimmed to
-// `Self.dimmedCardAlpha` so the current one reads as the front-most one.
+// island's shape. The current display is marked WITHOUT a border: its title
+// row holds the close / minimize / full-screen lights (plan D in
+// docs/bento-window-actions-mockups.html) and its accent-coloured name sits in
+// a footer under the grid, while the other cards keep a dot + name on top and
+// are dimmed to `Self.dimmedContentAlpha` so the current one reads as the
+// front-most one. The single card has the same lights row and no name.
 //
 // (Type is still named `TileCancelDot` for historical/source-stability
 // reasons; the very first version of this overlay was a single accent
@@ -212,6 +215,39 @@ final class TileCancelDot: NSPanel {
     fileprivate static let cardTitleDotSize: CGFloat = 6
     fileprivate static let cardTitleDotGap: CGFloat = 7
 
+    // MARK: - Layout constants (traffic lights)
+    //
+    // Plan D in docs/bento-window-actions-mockups.html: the CURRENT card's
+    // title row holds close / minimize / full-screen lights in its top-left
+    // corner, like a real window, and the display's name moves to a footer
+    // row centered under the grid. The single-display card has no title, so
+    // it just gains the same top row for the lights.
+
+    /// Footer row under the current card's grid, holding the display name.
+    fileprivate static let cardFooterHeight: CGFloat = 18
+    /// Each light's hit box. The drawn circle is smaller (`lightBulbSize`);
+    /// the box is what the cursor has to land in.
+    static let lightHitSize: CGFloat = 22
+    fileprivate static let lightBulbSize: CGFloat = 12
+    fileprivate static let lightsLeftPad: CGFloat = 6
+    fileprivate static let lightsTopPad: CGFloat = 3
+    /// Gap between the last light and its hover label.
+    fileprivate static let lightsLabelGap: CGFloat = 6
+
+    /// The three lights' hit boxes inside a card rect (non-flipped, any
+    /// coordinate space — the result is in the same space as `card`). The one
+    /// place this geometry lives: the hit test and the drawing both read it.
+    static func lightRects(inCard card: NSRect) -> [(action: WindowAction, rect: NSRect)] {
+        WindowAction.allCases.enumerated().map { index, action in
+            (action, NSRect(
+                x: card.minX + lightsLeftPad + CGFloat(index) * lightHitSize,
+                y: card.maxY - lightsTopPad - lightHitSize,
+                width: lightHitSize,
+                height: lightHitSize
+            ))
+        }
+    }
+
     /// Non-current display cards have their CONTENTS (tiles + title, not the
     /// glass itself) dimmed to this alpha. With no borders left, this plus
     /// the accent dot/name is what marks the current card.
@@ -276,6 +312,11 @@ final class TileCancelDot: NSPanel {
     private var contentSizeInWindow: CGSize = .zero
     private var activeScreen: NSScreen?
     private var activeZone: TileZone?
+    private var activeAction: WindowAction?
+    /// Single-display only: the card's rect in screen coords, so the lights
+    /// in its top row can be hit-tested. (The tile cells there are infinite
+    /// and measured from `gestureOriginNS` instead.)
+    private var singleCardRectNS: NSRect?
 
     // MARK: - Subviews
 
@@ -400,11 +441,14 @@ final class TileCancelDot: NSPanel {
         let clickNS = NSPoint(x: cgScreenPoint.x, y: nsY)
         let currentScreen = NSScreen.screens.first(where: { $0.frame.contains(clickNS) }) ?? primary
 
+        // The card is the grid plus a top row for the traffic lights. The
+        // GRID's center (not the card's) lands on the click, so the cursor
+        // still starts in the cancel cell.
         let idealFrame = NSRect(
             x: cgScreenPoint.x - Self.panelWidth / 2,
             y: nsY - Self.panelHeight / 2,
             width: Self.panelWidth,
-            height: Self.panelHeight
+            height: Self.panelHeight + Self.cardTitleAreaHeight
         )
 
         // Edge-safe (default): clamp on-screen + warp the cursor to the center.
@@ -421,17 +465,19 @@ final class TileCancelDot: NSPanel {
             contentFrame = idealFrame
             layoutOrigin = idealFrame.origin
         }
-        // Direction is measured from the card's actual center. Un-clamped, that
+        // Direction is measured from the grid's actual center. Un-clamped, that
         // equals the click point (where the un-warped cursor sits), so the OFF
         // path stays geometrically correct.
-        let cancelCenter = NSPoint(x: contentFrame.midX, y: contentFrame.midY)
+        let cancelCenter = NSPoint(x: contentFrame.midX, y: contentFrame.minY + Self.panelHeight / 2)
         gestureOriginNS = cancelCenter
         layoutOriginNS = layoutOrigin
         displayLayout = nil
         displayOffset = .zero
         contentSizeInWindow = contentFrame.size
+        singleCardRectNS = contentFrame
         activeScreen = nil
         activeZone = nil
+        activeAction = nil
 
         setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
         layOutCardViews()
@@ -508,8 +554,10 @@ final class TileCancelDot: NSPanel {
         displayLayout = result.cards
         displayOffset = offset
         contentSizeInWindow = contentFrame.size
+        singleCardRectNS = nil
         activeScreen = nil
         activeZone = nil
+        activeAction = nil
 
         setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
         layOutCardViews()
@@ -589,6 +637,11 @@ final class TileCancelDot: NSPanel {
                 view.content.showBorder = borderEnabled
                 view.content.alphaValue = card.isCurrent ? 1.0 : Self.dimmedContentAlpha
                 view.content.titleAreaHeight = Self.cardTitleAreaHeight
+                // The current card trades its title for the lights and shows
+                // the name in a footer instead; the others keep the title row.
+                view.content.footerHeight = card.isCurrent ? Self.cardFooterHeight : 0
+                view.content.showsLights = card.isCurrent
+                view.content.activeAction = nil
                 view.content.label = card.label
                 view.content.isCurrent = card.isCurrent
                 view.content.centerZone = card.centerZone
@@ -609,7 +662,11 @@ final class TileCancelDot: NSPanel {
             view.content.tint = tintOption
             view.content.showBorder = borderEnabled
             view.content.alphaValue = 1.0
-            view.content.titleAreaHeight = 0
+            // No title on a lone card, but the same top row for the lights.
+            view.content.titleAreaHeight = Self.cardTitleAreaHeight
+            view.content.footerHeight = 0
+            view.content.showsLights = true
+            view.content.activeAction = nil
             view.content.label = nil
             view.content.isCurrent = false
             // Single card: its center is the cancel ring, nowhere to move to.
@@ -685,6 +742,9 @@ final class TileCancelDot: NSPanel {
         let cardW = panelWidth
         let gridH = panelHeight
         let cardH = cardTitleAreaHeight + gridH
+        // Every row reserves the current card's footer, so whichever row the
+        // current card is in, the row below never moves into it.
+        let rowH = cardH + cardFooterHeight
         let gap = multiCardGap
 
         // Group screens into columns by the x-center of their NS frames.
@@ -727,7 +787,7 @@ final class TileCancelDot: NSPanel {
         // No outer container any more: the layout is exactly the cards plus
         // the gaps between them.
         let panelW = CGFloat(nCols) * cardW + CGFloat(max(0, nCols - 1)) * gap
-        let panelH = CGFloat(nRows) * cardH + CGFloat(max(0, nRows - 1)) * gap
+        let panelH = CGFloat(nRows) * rowH + CGFloat(max(0, nRows - 1)) * gap
 
         var cards: [DisplayCard] = []
         for (col, columnScreens) in columns.enumerated() {
@@ -736,14 +796,17 @@ final class TileCancelDot: NSPanel {
                 // Card top y (non-flipped: y=0 at bottom, row 0 is the
                 // visual TOP). The title row occupies the top of the card,
                 // the grid box the rest.
-                let cardTopY = panelH - CGFloat(rowFromTop) * (cardH + gap)
-                let cardY = cardTopY - cardH
+                // The current card hangs its footer below the grid; the
+                // others end at the grid, top-aligned with it.
+                let cardTopY = panelH - CGFloat(rowFromTop) * (rowH + gap)
                 let isCurrent = screen == currentScreen
+                let footer = isCurrent ? cardFooterHeight : 0
+                let gridY = cardTopY - cardH
                 let canMoveHere = !isCurrent && source != nil
                 cards.append(DisplayCard(
                     screen: screen,
-                    cardRect: NSRect(x: x, y: cardY, width: cardW, height: cardH),
-                    gridRect: NSRect(x: x, y: cardY, width: cardW, height: gridH),
+                    cardRect: NSRect(x: x, y: gridY - footer, width: cardW, height: cardH + footer),
+                    gridRect: NSRect(x: x, y: gridY, width: cardW, height: gridH),
                     isCurrent: isCurrent,
                     label: screen.localizedName,
                     centerZone: canMoveHere ? .moveToDisplay : nil,
@@ -776,11 +839,11 @@ final class TileCancelDot: NSPanel {
 
     // MARK: - Resolution / highlighting
 
-    /// Resolve the cursor position (CG screen coords, y-down) to a
-    /// (display, zone) hit. Returns nil for cancel (center cell of any
-    /// display) and for "outside any display" (multi-display) or "off all
-    /// screens" (single-display).
-    func resolve(cursorAtCGPoint cgPoint: CGPoint) -> (screen: NSScreen, zone: TileZone)? {
+    /// Resolve the cursor position (CG screen coords, y-down) to a hit: a
+    /// traffic light, or a (display, zone) cell. Returns nil for cancel
+    /// (center cell of any display) and for "outside any display"
+    /// (multi-display) or "off all screens" (single-display).
+    func resolve(cursorAtCGPoint cgPoint: CGPoint) -> BentoHit? {
         guard let primary = NSScreen.screens.first else { return nil }
         let nsY = primary.frame.height - cgPoint.y
         let cursorNS = NSPoint(x: cgPoint.x, y: nsY)
@@ -801,10 +864,25 @@ final class TileCancelDot: NSPanel {
                 x: cursorNS.x - originNS.x,
                 y: cursorNS.y - originNS.y
             )
+            if let current = layout.first(where: { $0.isCurrent }),
+               let action = Self.light(at: local, inCard: current.cardRect) {
+                return .action(action)
+            }
             return Self.resolveMultiDisplay(cursorLocal: local, layout: layout)
+                .map { .tile(screen: $0.screen, zone: $0.zone) }
         } else {
+            // The lights win over the cells: the single card's cells extend
+            // to infinity, so the top-left one also covers the lights' row.
+            if let card = singleCardRectNS, let action = Self.light(at: cursorNS, inCard: card) {
+                return .action(action)
+            }
             return resolveSingleDisplay(cursorNS: cursorNS)
+                .map { .tile(screen: $0.screen, zone: $0.zone) }
         }
+    }
+
+    private static func light(at point: NSPoint, inCard card: NSRect) -> WindowAction? {
+        lightRects(inCard: card).first(where: { $0.rect.contains(point) })?.action
     }
 
     private static func resolveMultiDisplay(
@@ -867,25 +945,40 @@ final class TileCancelDot: NSPanel {
     /// Highlight the resolved hit. Pass nil to clear (cursor in cancel
     /// cell or outside any zone). Cheap to call every drag event — only
     /// triggers a redraw when the visible state changes.
-    func setActive(_ hit: (screen: NSScreen, zone: TileZone)?) {
-        let newScreen = hit?.screen
-        let newZone = hit?.zone
-        guard newScreen != activeScreen || newZone != activeZone else { return }
+    func setActive(_ hit: BentoHit?) {
+        var newScreen: NSScreen?
+        var newZone: TileZone?
+        var newAction: WindowAction?
+        switch hit {
+        case .tile(let screen, let zone)?:
+            newScreen = screen
+            newZone = zone
+        case .action(let action)?:
+            newAction = action
+        case nil:
+            break
+        }
+        guard newScreen != activeScreen || newZone != activeZone || newAction != activeAction else { return }
         activeScreen = newScreen
         activeZone = newZone
+        activeAction = newAction
 
         if let layout = displayLayout {
-            // Only the card whose screen matches the hit shows a highlight.
+            // Only the card whose screen matches the hit shows a highlight;
+            // the lights only exist on the current card.
             for (view, card) in zip(cardViews, layout) {
                 let zone = card.screen == newScreen ? newZone : nil
-                guard view.content.activeZone != zone else { continue }
+                let action = card.isCurrent ? newAction : nil
+                guard view.content.activeZone != zone || view.content.activeAction != action else { continue }
                 view.content.activeZone = zone
+                view.content.activeAction = action
                 view.content.needsDisplay = true
             }
         } else if let view = cardViews.first {
             view.content.activeZone = newZone
-            // No zone → the cursor is back in the deadzone: light the ring.
-            view.content.cancelActive = newZone == nil
+            view.content.activeAction = newAction
+            // Nothing selected → the cursor is back in the deadzone: light the ring.
+            view.content.cancelActive = hit == nil
             view.content.needsDisplay = true
         }
     }
@@ -1036,9 +1129,16 @@ private final class BentoCardContentView: NSView {
     /// The `.moveToDisplay` landing rect as a fraction of this display's
     /// visible frame. Drawn inside the center cell's mini-screen.
     var moveHerePreview: NSRect?
-    /// Height reserved at the TOP of the card for the title row. 0 when
-    /// there's no title, in which case the grid fills the whole card.
+    /// Height reserved at the TOP of the card for the title row (or, on the
+    /// card that shows the lights, the lights' row). 0 → the grid starts at
+    /// the top.
     var titleAreaHeight: CGFloat = 0
+    /// Height reserved at the BOTTOM for the footer. Non-zero only on the
+    /// current card, which shows its display name there instead of on top.
+    var footerHeight: CGFloat = 0
+    /// Draw close / minimize / full-screen in the top-left corner.
+    var showsLights: Bool = false
+    var activeAction: WindowAction?
     /// Optional wash over the glass. Stored as the option, not a resolved
     /// colour: every other colour in here is resolved inside `draw`, where
     /// `NSAppearance.current` is this view's, so a light/dark swap needs no
@@ -1061,14 +1161,21 @@ private final class BentoCardContentView: NSView {
 
         let gridRect = NSRect(
             x: bounds.minX,
-            y: bounds.minY,
+            y: bounds.minY + footerHeight,
             width: bounds.width,
-            height: max(0, bounds.height - titleAreaHeight)
+            height: max(0, bounds.height - titleAreaHeight - footerHeight)
         )
         drawGrid(in: gridRect, accent: NSColor.controlAccentColor)
 
         if let label, !label.isEmpty {
-            drawTitle(label)
+            if footerHeight > 0 {
+                drawFooterTitle(label)
+            } else {
+                drawTitle(label)
+            }
+        }
+        if showsLights {
+            drawLights()
         }
 
         if showBorder {
@@ -1123,6 +1230,124 @@ private final class BentoCardContentView: NSView {
             .paragraphStyle: paragraph,
         ]
         NSAttributedString(string: text.uppercased(), attributes: attrs).draw(in: textRect)
+    }
+
+    /// The current card's name, centered in the footer under the grid. No
+    /// dot: the lights above already say which card is the current one.
+    private func drawFooterTitle(_ text: String) {
+        let titleH = TileCancelDot.cardTitleHeight
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.controlAccentColor,
+            .kern: 0.8,
+            .paragraphStyle: paragraph,
+        ]
+        // Sits close under the grid (whose own padding already separates it
+        // from the tiles), leaving the rest of the footer as bottom margin.
+        let textRect = NSRect(
+            x: bounds.minX + TileCancelDot.cardTitleLeftPad,
+            y: bounds.minY + footerHeight - titleH - 1,
+            width: max(0, bounds.width - TileCancelDot.cardTitleLeftPad * 2),
+            height: titleH + 2
+        )
+        NSAttributedString(string: text.uppercased(), attributes: attrs).draw(in: textRect)
+    }
+
+    // MARK: - Traffic lights
+
+    private func drawLights() {
+        let lights = TileCancelDot.lightRects(inCard: bounds)
+        let bulb = TileCancelDot.lightBulbSize
+        // Like a real window: hovering any light shows every light's symbol.
+        let showGlyphs = activeAction != nil
+        for (action, hitRect) in lights {
+            let color = Self.lightColor(action)
+            if action == activeAction {
+                color.withAlphaComponent(0.22).setFill()
+                NSBezierPath(ovalIn: hitRect).fill()
+            }
+            let scale: CGFloat = action == activeAction ? 1.08 : 1
+            let size = bulb * scale
+            let bulbRect = NSRect(x: hitRect.midX - size / 2, y: hitRect.midY - size / 2,
+                                  width: size, height: size)
+            let path = NSBezierPath(ovalIn: bulbRect)
+            color.setFill()
+            path.fill()
+            NSColor.black.withAlphaComponent(0.14).setStroke()
+            path.lineWidth = 0.6
+            path.stroke()
+            if showGlyphs {
+                drawGlyph(action, in: bulbRect)
+            }
+        }
+
+        if let activeAction, let last = lights.last?.rect {
+            let x = last.maxX + TileCancelDot.lightsLabelGap
+            let titleH = TileCancelDot.cardTitleHeight
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                .foregroundColor: Self.cardLabelColor,
+                .kern: 0.8,
+            ]
+            NSAttributedString(string: activeAction.label.uppercased(), attributes: attrs).draw(
+                at: NSPoint(x: x, y: last.midY - titleH / 2 - 1)
+            )
+        }
+    }
+
+    private func drawGlyph(_ action: WindowAction, in bulb: NSRect) {
+        let ink = NSColor.black.withAlphaComponent(0.55)
+        let inset = bulb.width * 0.29
+        let r = bulb.insetBy(dx: inset, dy: inset)
+        switch action {
+        case .close:
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: r.minX, y: r.minY))
+            path.line(to: NSPoint(x: r.maxX, y: r.maxY))
+            path.move(to: NSPoint(x: r.minX, y: r.maxY))
+            path.line(to: NSPoint(x: r.maxX, y: r.minY))
+            path.lineWidth = 1.2
+            path.lineCapStyle = .round
+            ink.setStroke()
+            path.stroke()
+        case .minimize:
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: bulb.minX + bulb.width * 0.24, y: bulb.midY))
+            path.line(to: NSPoint(x: bulb.maxX - bulb.width * 0.24, y: bulb.midY))
+            path.lineWidth = 1.3
+            path.lineCapStyle = .round
+            ink.setStroke()
+            path.stroke()
+        case .fullScreen:
+            // The system's full-screen glyph: two solid corner triangles,
+            // pointing out to the top-left and the bottom-right.
+            let leg = r.width * 0.55
+            let a = NSBezierPath()
+            a.move(to: NSPoint(x: r.minX, y: r.maxY))
+            a.line(to: NSPoint(x: r.minX + leg, y: r.maxY))
+            a.line(to: NSPoint(x: r.minX, y: r.maxY - leg))
+            a.close()
+            let b = NSBezierPath()
+            b.move(to: NSPoint(x: r.maxX, y: r.minY))
+            b.line(to: NSPoint(x: r.maxX - leg, y: r.minY))
+            b.line(to: NSPoint(x: r.maxX, y: r.minY + leg))
+            b.close()
+            ink.setFill()
+            a.fill()
+            b.fill()
+        }
+    }
+
+    /// The system's own traffic-light colours.
+    private static func lightColor(_ action: WindowAction) -> NSColor {
+        switch action {
+        case .close:      return NSColor(srgbRed: 1.00, green: 0.373, blue: 0.341, alpha: 1)  // #FF5F57
+        case .minimize:   return NSColor(srgbRed: 0.996, green: 0.737, blue: 0.180, alpha: 1) // #FEBC2E
+        case .fullScreen: return NSColor(srgbRed: 0.157, green: 0.784, blue: 0.251, alpha: 1) // #28C840
+        }
     }
 
     // MARK: - Grid
