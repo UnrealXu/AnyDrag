@@ -264,6 +264,9 @@ struct MiddleClickPage: View {
                     Toggle(isOn: Binding(get: { store.linkedResizeEnabled }, set: { store.setLinkedResizeEnabled($0) })) {
                         featureLabel("rectangle.split.2x1", .orange, L("feature.linkedResize"), L("feature.linkedResize.subtitle"))
                     }
+                    Toggle(isOn: Binding(get: { store.bentoWindowActionsEnabled }, set: { store.setBentoWindowActionsEnabled($0) })) {
+                        featureLabel("menubar.dock.rectangle", .yellow, L("feature.bentoWindowActions"), L("feature.bentoWindowActions.subtitle"))
+                    }
                 }
 
                 // Overlay looks — DEBUG only. The shipping look is fixed (no

@@ -21,6 +21,9 @@
 "tile.restore" = "Restore original size";
 "tile.restore.unavailable" = "Nothing to restore — AnyDrag hasn't moved this window yet";
 "tile.minimize" = "Minimize";
+"windowAction.close" = "Close window";
+"windowAction.minimize" = "Minimize window";
+"windowAction.fullScreen" = "Full screen";
 
 /* Settings — window titles */
 "AnyDrag Settings" = "Settings";
@@ -86,6 +89,8 @@
 "bentoAppearance.section"        = "Tile panel look";
 "feature.bentoBorder"           = "Show border";
 "feature.bentoBorder.subtitle"  = "Outline the tile panel and the app-name label with a thin border, so its edges stay clear on top of another window.";
+"feature.bentoWindowActions"          = "Show close, minimize, and full-screen buttons";
+"feature.bentoWindowActions.subtitle" = "Add a strip under the tile panel: release on it to close, minimize, or full-screen the window.";
 "feature.bentoMaterial"          = "Panel material";
 "feature.bentoMaterial.subtitle" = "The panel's frosted glass. The default follows the system and looks a lot like any window; a darker or more solid material separates it from what's behind.";
 "feature.bentoTint"          = "Panel tint";

@@ -46,6 +46,10 @@ enum Preferences {
         // it). Only a DEBUG build surfaces these in Settings; the keys are
         // still read in Release so the look stays configurable by hand.
         static let bentoBorderEnabled = "AnyDragBentoBorderEnabled"
+        // Close / minimize / full-screen strip under the bento's current
+        // card. Absent = true: on unless the user turns it off, so people
+        // find it without having to go looking in Settings.
+        static let bentoWindowActionsEnabled = "AnyDragBentoWindowActionsEnabled"
         static let bentoMaterial      = "AnyDragBentoMaterial"
         static let bentoTint          = "AnyDragBentoTint"
         static let middleAction    = "AnyDragMiddleAction"
@@ -312,6 +316,7 @@ enum Preferences {
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
         engine.multiDisplayBentoEnabled = d.object(forKey: Key.multiDisplayBentoEnabled) as? Bool ?? true
         engine.bentoBorderEnabled = d.object(forKey: Key.bentoBorderEnabled) as? Bool ?? false
+        engine.bentoWindowActionsEnabled = d.object(forKey: Key.bentoWindowActionsEnabled) as? Bool ?? true
         // Unrecognized values (a downgrade, a hand-edited plist) fall back to
         // the default rather than throwing the stored string away.
         engine.bentoMaterial = d.string(forKey: Key.bentoMaterial)

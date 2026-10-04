@@ -120,7 +120,9 @@ func bentoDynamicColor(dark: NSColor, light: NSColor) -> NSColor {
 // is transparent between them, so the window server's shadow follows each
 // island's shape. The current display is marked WITHOUT a border: an accent
 // dot + accent name in its title row, while the other cards are dimmed to
-// `Self.dimmedCardAlpha` so the current one reads as the front-most one.
+// `Self.dimmedContentAlpha` so the current one reads as the front-most one.
+// With `windowActionsEnabled`, the current card (or the single card) also
+// carries a close / minimize / full-screen strip under its grid.
 //
 // (Type is still named `TileCancelDot` for historical/source-stability
 // reasons; the very first version of this overlay was a single accent
@@ -212,6 +214,42 @@ final class TileCancelDot: NSPanel {
     fileprivate static let cardTitleDotSize: CGFloat = 6
     fileprivate static let cardTitleDotGap: CGFloat = 7
 
+    // MARK: - Layout constants (window-action strip)
+    //
+    // Plan E″ in docs/bento-minimize-placement-mockups.html: when
+    // `windowActionsEnabled`, the CURRENT card (or the lone single-display
+    // card) gains a strip under its grid — a small close square on the left,
+    // minimize across the middle, a small full-screen square on the right.
+    // Monochrome, styled like the tiles above it.
+
+    /// Height added under the grid. The grid's own bottom padding already
+    /// sits between the tiles and the strip, so the strip tucks up into it by
+    /// `actionStripTuck` and keeps `chromePadding` to the card's bottom edge.
+    fileprivate static let actionStripHeight: CGFloat = 26
+    fileprivate static let actionStripTuck: CGFloat = 4
+    fileprivate static var actionStripAreaHeight: CGFloat {
+        actionStripHeight - actionStripTuck + chromePadding
+    }
+    /// Close and full screen are squares; minimize takes the rest.
+    fileprivate static let actionSquareSize: CGFloat = 26
+
+    /// The three segments' rects inside a card rect (non-flipped, any
+    /// coordinate space — the result is in the same space as `card`). The one
+    /// place this geometry lives: the hit test and the drawing both read it.
+    static func actionRects(inCard card: NSRect) -> [(action: WindowAction, rect: NSRect)] {
+        let y = card.minY + chromePadding
+        let h = actionStripHeight
+        let left = card.minX + chromePadding
+        let right = card.maxX - chromePadding
+        let square = actionSquareSize
+        return [
+            (.close, NSRect(x: left, y: y, width: square, height: h)),
+            (.minimize, NSRect(x: left + square + tileGap, y: y,
+                               width: right - left - 2 * (square + tileGap), height: h)),
+            (.fullScreen, NSRect(x: right - square, y: y, width: square, height: h)),
+        ]
+    }
+
     /// Non-current display cards have their CONTENTS (tiles + title, not the
     /// glass itself) dimmed to this alpha. With no borders left, this plus
     /// the accent dot/name is what marks the current card.
@@ -251,6 +289,12 @@ final class TileCancelDot: NSPanel {
     /// as `borderEnabled`, without adding a line. Ships as `.accent`.
     var tint: BentoTint = .accent
 
+    /// Show the close / minimize / full-screen strip under the current card.
+    var windowActionsEnabled: Bool = true
+    /// `windowActionsEnabled` as of the last `show` — the layout was built
+    /// for that value, so the hit test must use it too.
+    private var actionsShown: Bool = false
+
     /// Origin used by the current layout's hit testing. It differs from the
     /// window origin only when an oversized multi-display layout is clipped.
     private var layoutOriginNS: NSPoint?
@@ -276,6 +320,11 @@ final class TileCancelDot: NSPanel {
     private var contentSizeInWindow: CGSize = .zero
     private var activeScreen: NSScreen?
     private var activeZone: TileZone?
+    private var activeAction: WindowAction?
+    /// Single-display only: the card's rect in screen coords, so the action
+    /// strip under its grid can be hit-tested. (The tile cells there are
+    /// infinite and measured from `gestureOriginNS` instead.)
+    private var singleCardRectNS: NSRect?
 
     // MARK: - Subviews
 
@@ -400,11 +449,15 @@ final class TileCancelDot: NSPanel {
         let clickNS = NSPoint(x: cgScreenPoint.x, y: nsY)
         let currentScreen = NSScreen.screens.first(where: { $0.frame.contains(clickNS) }) ?? primary
 
+        // With the action strip on, the card is the grid plus the strip
+        // under it. The GRID's center (not the card's) lands on the click, so
+        // the cursor still starts in the cancel cell.
+        let strip = windowActionsEnabled ? Self.actionStripAreaHeight : 0
         let idealFrame = NSRect(
             x: cgScreenPoint.x - Self.panelWidth / 2,
-            y: nsY - Self.panelHeight / 2,
+            y: nsY - Self.panelHeight / 2 - strip,
             width: Self.panelWidth,
-            height: Self.panelHeight
+            height: Self.panelHeight + strip
         )
 
         // Edge-safe (default): clamp on-screen + warp the cursor to the center.
@@ -421,17 +474,20 @@ final class TileCancelDot: NSPanel {
             contentFrame = idealFrame
             layoutOrigin = idealFrame.origin
         }
-        // Direction is measured from the card's actual center. Un-clamped, that
+        // Direction is measured from the grid's actual center. Un-clamped, that
         // equals the click point (where the un-warped cursor sits), so the OFF
         // path stays geometrically correct.
-        let cancelCenter = NSPoint(x: contentFrame.midX, y: contentFrame.midY)
+        let cancelCenter = NSPoint(x: contentFrame.midX, y: contentFrame.minY + strip + Self.panelHeight / 2)
         gestureOriginNS = cancelCenter
+        actionsShown = windowActionsEnabled
         layoutOriginNS = layoutOrigin
         displayLayout = nil
         displayOffset = .zero
         contentSizeInWindow = contentFrame.size
+        singleCardRectNS = contentFrame
         activeScreen = nil
         activeZone = nil
+        activeAction = nil
 
         setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
         layOutCardViews()
@@ -455,8 +511,10 @@ final class TileCancelDot: NSPanel {
         let result = Self.computeMultiDisplayLayout(
             screens: screens,
             currentScreen: currentScreen,
-            source: targetSource
+            source: targetSource,
+            withActionStrip: windowActionsEnabled
         )
+        actionsShown = windowActionsEnabled
 
         // Anchor: the current card's GRID center aligned to the click point,
         // so the cursor starts in the center (cancel) cell — the title row
@@ -508,8 +566,10 @@ final class TileCancelDot: NSPanel {
         displayLayout = result.cards
         displayOffset = offset
         contentSizeInWindow = contentFrame.size
+        singleCardRectNS = nil
         activeScreen = nil
         activeZone = nil
+        activeAction = nil
 
         setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
         layOutCardViews()
@@ -589,6 +649,11 @@ final class TileCancelDot: NSPanel {
                 view.content.showBorder = borderEnabled
                 view.content.alphaValue = card.isCurrent ? 1.0 : Self.dimmedContentAlpha
                 view.content.titleAreaHeight = Self.cardTitleAreaHeight
+                // Only the current card carries the action strip.
+                let strip = card.isCurrent && actionsShown
+                view.content.footerHeight = strip ? Self.actionStripAreaHeight : 0
+                view.content.showsActions = strip
+                view.content.activeAction = nil
                 view.content.label = card.label
                 view.content.isCurrent = card.isCurrent
                 view.content.centerZone = card.centerZone
@@ -610,6 +675,9 @@ final class TileCancelDot: NSPanel {
             view.content.showBorder = borderEnabled
             view.content.alphaValue = 1.0
             view.content.titleAreaHeight = 0
+            view.content.footerHeight = actionsShown ? Self.actionStripAreaHeight : 0
+            view.content.showsActions = actionsShown
+            view.content.activeAction = nil
             view.content.label = nil
             view.content.isCurrent = false
             // Single card: its center is the cancel ring, nowhere to move to.
@@ -675,7 +743,8 @@ final class TileCancelDot: NSPanel {
     private static func computeMultiDisplayLayout(
         screens: [NSScreen],
         currentScreen: NSScreen,
-        source: TileZone.Source?
+        source: TileZone.Source?,
+        withActionStrip: Bool
     ) -> (panelSize: CGSize, cards: [DisplayCard]) {
         // Each card's grid box matches the single-display card exactly, so
         // the user sees identical cell / preview / cancel-ring rendering
@@ -685,6 +754,11 @@ final class TileCancelDot: NSPanel {
         let cardW = panelWidth
         let gridH = panelHeight
         let cardH = cardTitleAreaHeight + gridH
+        // With the action strip on, every row reserves room for it, so
+        // whichever row the current card is in, the row below never moves
+        // into its strip.
+        let stripH = withActionStrip ? actionStripAreaHeight : 0
+        let rowH = cardH + stripH
         let gap = multiCardGap
 
         // Group screens into columns by the x-center of their NS frames.
@@ -727,7 +801,7 @@ final class TileCancelDot: NSPanel {
         // No outer container any more: the layout is exactly the cards plus
         // the gaps between them.
         let panelW = CGFloat(nCols) * cardW + CGFloat(max(0, nCols - 1)) * gap
-        let panelH = CGFloat(nRows) * cardH + CGFloat(max(0, nRows - 1)) * gap
+        let panelH = CGFloat(nRows) * rowH + CGFloat(max(0, nRows - 1)) * gap
 
         var cards: [DisplayCard] = []
         for (col, columnScreens) in columns.enumerated() {
@@ -736,14 +810,17 @@ final class TileCancelDot: NSPanel {
                 // Card top y (non-flipped: y=0 at bottom, row 0 is the
                 // visual TOP). The title row occupies the top of the card,
                 // the grid box the rest.
-                let cardTopY = panelH - CGFloat(rowFromTop) * (cardH + gap)
-                let cardY = cardTopY - cardH
+                // The current card hangs the action strip below its grid;
+                // the others end at the grid, top-aligned with it.
+                let cardTopY = panelH - CGFloat(rowFromTop) * (rowH + gap)
                 let isCurrent = screen == currentScreen
+                let footer = isCurrent ? stripH : 0
+                let gridY = cardTopY - cardH
                 let canMoveHere = !isCurrent && source != nil
                 cards.append(DisplayCard(
                     screen: screen,
-                    cardRect: NSRect(x: x, y: cardY, width: cardW, height: cardH),
-                    gridRect: NSRect(x: x, y: cardY, width: cardW, height: gridH),
+                    cardRect: NSRect(x: x, y: gridY - footer, width: cardW, height: cardH + footer),
+                    gridRect: NSRect(x: x, y: gridY, width: cardW, height: gridH),
                     isCurrent: isCurrent,
                     label: screen.localizedName,
                     centerZone: canMoveHere ? .moveToDisplay : nil,
@@ -776,11 +853,11 @@ final class TileCancelDot: NSPanel {
 
     // MARK: - Resolution / highlighting
 
-    /// Resolve the cursor position (CG screen coords, y-down) to a
-    /// (display, zone) hit. Returns nil for cancel (center cell of any
-    /// display) and for "outside any display" (multi-display) or "off all
-    /// screens" (single-display).
-    func resolve(cursorAtCGPoint cgPoint: CGPoint) -> (screen: NSScreen, zone: TileZone)? {
+    /// Resolve the cursor position (CG screen coords, y-down) to a hit: a
+    /// window-action segment, or a (display, zone) cell. Returns nil for cancel
+    /// (center cell of any display) and for "outside any display"
+    /// (multi-display) or "off all screens" (single-display).
+    func resolve(cursorAtCGPoint cgPoint: CGPoint) -> BentoHit? {
         guard let primary = NSScreen.screens.first else { return nil }
         let nsY = primary.frame.height - cgPoint.y
         let cursorNS = NSPoint(x: cgPoint.x, y: nsY)
@@ -801,10 +878,26 @@ final class TileCancelDot: NSPanel {
                 x: cursorNS.x - originNS.x,
                 y: cursorNS.y - originNS.y
             )
+            if actionsShown,
+               let current = layout.first(where: { $0.isCurrent }),
+               let action = Self.action(at: local, inCard: current.cardRect) {
+                return .action(action)
+            }
             return Self.resolveMultiDisplay(cursorLocal: local, layout: layout)
+                .map { .tile(screen: $0.screen, zone: $0.zone) }
         } else {
+            // The strip wins over the cells: the single card's cells extend
+            // to infinity, so the bottom row also covers the strip.
+            if actionsShown, let card = singleCardRectNS, let action = Self.action(at: cursorNS, inCard: card) {
+                return .action(action)
+            }
             return resolveSingleDisplay(cursorNS: cursorNS)
+                .map { .tile(screen: $0.screen, zone: $0.zone) }
         }
+    }
+
+    private static func action(at point: NSPoint, inCard card: NSRect) -> WindowAction? {
+        actionRects(inCard: card).first(where: { $0.rect.contains(point) })?.action
     }
 
     private static func resolveMultiDisplay(
@@ -867,25 +960,40 @@ final class TileCancelDot: NSPanel {
     /// Highlight the resolved hit. Pass nil to clear (cursor in cancel
     /// cell or outside any zone). Cheap to call every drag event — only
     /// triggers a redraw when the visible state changes.
-    func setActive(_ hit: (screen: NSScreen, zone: TileZone)?) {
-        let newScreen = hit?.screen
-        let newZone = hit?.zone
-        guard newScreen != activeScreen || newZone != activeZone else { return }
+    func setActive(_ hit: BentoHit?) {
+        var newScreen: NSScreen?
+        var newZone: TileZone?
+        var newAction: WindowAction?
+        switch hit {
+        case .tile(let screen, let zone)?:
+            newScreen = screen
+            newZone = zone
+        case .action(let action)?:
+            newAction = action
+        case nil:
+            break
+        }
+        guard newScreen != activeScreen || newZone != activeZone || newAction != activeAction else { return }
         activeScreen = newScreen
         activeZone = newZone
+        activeAction = newAction
 
         if let layout = displayLayout {
-            // Only the card whose screen matches the hit shows a highlight.
+            // Only the card whose screen matches the hit shows a highlight;
+            // the action strip only exists on the current card.
             for (view, card) in zip(cardViews, layout) {
                 let zone = card.screen == newScreen ? newZone : nil
-                guard view.content.activeZone != zone else { continue }
+                let action = card.isCurrent ? newAction : nil
+                guard view.content.activeZone != zone || view.content.activeAction != action else { continue }
                 view.content.activeZone = zone
+                view.content.activeAction = action
                 view.content.needsDisplay = true
             }
         } else if let view = cardViews.first {
             view.content.activeZone = newZone
-            // No zone → the cursor is back in the deadzone: light the ring.
-            view.content.cancelActive = newZone == nil
+            view.content.activeAction = newAction
+            // Nothing selected → the cursor is back in the deadzone: light the ring.
+            view.content.cancelActive = hit == nil
             view.content.needsDisplay = true
         }
     }
@@ -1037,8 +1145,13 @@ private final class BentoCardContentView: NSView {
     /// visible frame. Drawn inside the center cell's mini-screen.
     var moveHerePreview: NSRect?
     /// Height reserved at the TOP of the card for the title row. 0 when
-    /// there's no title, in which case the grid fills the whole card.
+    /// there's no title, in which case the grid starts at the top.
     var titleAreaHeight: CGFloat = 0
+    /// Height reserved at the BOTTOM for the action strip; 0 without it.
+    var footerHeight: CGFloat = 0
+    /// Draw the close / minimize / full-screen strip under the grid.
+    var showsActions: Bool = false
+    var activeAction: WindowAction?
     /// Optional wash over the glass. Stored as the option, not a resolved
     /// colour: every other colour in here is resolved inside `draw`, where
     /// `NSAppearance.current` is this view's, so a light/dark swap needs no
@@ -1061,14 +1174,17 @@ private final class BentoCardContentView: NSView {
 
         let gridRect = NSRect(
             x: bounds.minX,
-            y: bounds.minY,
+            y: bounds.minY + footerHeight,
             width: bounds.width,
-            height: max(0, bounds.height - titleAreaHeight)
+            height: max(0, bounds.height - titleAreaHeight - footerHeight)
         )
         drawGrid(in: gridRect, accent: NSColor.controlAccentColor)
 
         if let label, !label.isEmpty {
             drawTitle(label)
+        }
+        if showsActions {
+            drawActionStrip(accent: NSColor.controlAccentColor)
         }
 
         if showBorder {
@@ -1123,6 +1239,77 @@ private final class BentoCardContentView: NSView {
             .paragraphStyle: paragraph,
         ]
         NSAttributedString(string: text.uppercased(), attributes: attrs).draw(in: textRect)
+    }
+
+    // MARK: - Action strip
+
+    /// Same look as a tile: plain gray block at rest, accent fill + stroke
+    /// when selected. The icons are drawn in the tile previews' gray and go
+    /// white with the highlight, also like a tile.
+    private func drawActionStrip(accent: NSColor) {
+        for (action, rect) in TileCancelDot.actionRects(inCard: bounds) {
+            let isActive = action == activeAction
+            let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+            if isActive {
+                accent.withAlphaComponent(0.42).setFill()
+                path.fill()
+                accent.withAlphaComponent(0.95).setStroke()
+                path.lineWidth = 1.2
+                path.stroke()
+            } else {
+                Self.tileBgColor.setFill()
+                path.fill()
+            }
+            let ink: NSColor = isActive ? .white : Self.miniPreviewIdleFill
+            let iconSize: CGFloat = 12
+            if action == .minimize {
+                // Icon + label, centered together.
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+                    .foregroundColor: isActive ? NSColor.white : Self.cardLabelColor,
+                    .kern: 0.8,
+                ]
+                let text = NSAttributedString(string: action.label.uppercased(), attributes: attrs)
+                let textSize = text.size()
+                let gap: CGFloat = 7
+                let total = min(rect.width - 16, iconSize + gap + textSize.width)
+                let iconX = rect.midX - total / 2
+                drawIcon(action, in: NSRect(x: iconX, y: rect.midY - iconSize / 2,
+                                            width: iconSize, height: iconSize), ink: ink)
+                let textX = iconX + iconSize + gap
+                text.draw(in: NSRect(x: textX, y: rect.midY - textSize.height / 2,
+                                     width: max(0, rect.maxX - 8 - textX), height: textSize.height))
+            } else {
+                drawIcon(action, in: NSRect(x: rect.midX - iconSize / 2, y: rect.midY - iconSize / 2,
+                                            width: iconSize, height: iconSize), ink: ink)
+            }
+        }
+    }
+
+    /// 12 pt line icons on a 12-unit grid, matching the design mockup.
+    private func drawIcon(_ action: WindowAction, in r: NSRect, ink: NSColor) {
+        let u = r.width / 12
+        // Mockup coords are y-down; this view is y-up.
+        func p(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: r.minX + x * u, y: r.maxY - y * u) }
+        let path = NSBezierPath()
+        switch action {
+        case .close:
+            path.move(to: p(3, 3)); path.line(to: p(9, 9))
+            path.move(to: p(9, 3)); path.line(to: p(3, 9))
+        case .minimize:
+            path.move(to: p(2.5, 6)); path.line(to: p(9.5, 6))
+        case .fullScreen:
+            // Two arrows pointing out to opposite corners.
+            path.move(to: p(7, 2)); path.line(to: p(10, 2)); path.line(to: p(10, 5))
+            path.move(to: p(10, 2)); path.line(to: p(7, 5))
+            path.move(to: p(5, 10)); path.line(to: p(2, 10)); path.line(to: p(2, 7))
+            path.move(to: p(2, 10)); path.line(to: p(5, 7))
+        }
+        path.lineWidth = 1.6 * u
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        ink.setStroke()
+        path.stroke()
     }
 
     // MARK: - Grid

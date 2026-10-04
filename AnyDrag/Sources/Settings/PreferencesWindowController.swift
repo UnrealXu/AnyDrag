@@ -48,6 +48,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var cornerBracketEnabled: Bool
     @Published private(set) var multiDisplayBentoEnabled: Bool
     @Published private(set) var bentoBorderEnabled: Bool
+    @Published private(set) var bentoWindowActionsEnabled: Bool
     @Published private(set) var bentoMaterial: BentoMaterial
     @Published private(set) var bentoTint: BentoTint
     @Published private(set) var tileByDirectionDragOnly: Bool
@@ -84,6 +85,7 @@ final class SettingsStore: ObservableObject {
         cornerBracketEnabled = engine.cornerBracketEnabled
         multiDisplayBentoEnabled = engine.multiDisplayBentoEnabled
         bentoBorderEnabled = engine.bentoBorderEnabled
+        bentoWindowActionsEnabled = engine.bentoWindowActionsEnabled
         bentoMaterial = engine.bentoMaterial
         bentoTint = engine.bentoTint
         tileByDirectionDragOnly = engine.tileByDirectionDragOnly
@@ -235,6 +237,7 @@ final class SettingsStore: ObservableObject {
     func setTilingEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.tilingEnabled, analytics: "tiling_enabled", current: \.tilingEnabled, write: { self.engine.tilingEnabled = $0 }, mirror: { self.tilingEnabled = $0 }) }
     func setCornerBracketEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.cornerBracketEnabled, analytics: "corner_bracket_enabled", current: \.cornerBracketEnabled, write: { self.engine.cornerBracketEnabled = $0 }, mirror: { self.cornerBracketEnabled = $0 }) }
     func setMultiDisplayBentoEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.multiDisplayBentoEnabled, analytics: "multi_display_bento_enabled", current: \.multiDisplayBentoEnabled, write: { self.engine.multiDisplayBentoEnabled = $0 }, mirror: { self.multiDisplayBentoEnabled = $0 }) }
+    func setBentoWindowActionsEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.bentoWindowActionsEnabled, analytics: "bento_window_actions_enabled", current: \.bentoWindowActionsEnabled, write: { self.engine.bentoWindowActionsEnabled = $0 }, mirror: { self.bentoWindowActionsEnabled = $0 }) }
     func setBentoBorderEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.bentoBorderEnabled, analytics: "bento_border_enabled", current: \.bentoBorderEnabled, write: { self.engine.bentoBorderEnabled = $0 }, mirror: { self.bentoBorderEnabled = $0 }) }
 
     func setBentoMaterial(_ value: BentoMaterial) {
