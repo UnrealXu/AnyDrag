@@ -344,9 +344,6 @@ final class DragEngine {
         /// target display — it isn't always the cursor's current display. nil
         /// when no zone is active.
         var tileTargetScreen: NSScreen? = nil
-        /// Set instead of `tileZone` while the cursor is on one of the bento's
-        /// traffic lights (close / minimize / full screen).
-        var tileAction: WindowAction? = nil
         var middleClickOrigin: CGPoint? = nil
         // Sticky: set true the first drag event that resolves to a non-nil
         // zone. Releasing in the deadzone with this true means the user
@@ -896,7 +893,6 @@ final class DragEngine {
             state.tileTarget = nil
             state.tileZone = nil
             state.tileTargetScreen = nil
-            state.tileAction = nil
             state.middleClickOrigin = nil
             state.tileSawDirection = false
             state.tileDotShown = false
@@ -1478,7 +1474,6 @@ final class DragEngine {
                 state.tileTarget = windowInfo
                 state.tileZone = nil
                 state.tileTargetScreen = nil
-                state.tileAction = nil
                 state.tileSawDirection = false
                 state.tileDotShown = !dragOnly
             }
@@ -1572,38 +1567,24 @@ final class DragEngine {
         // gesture state: `.moveToDisplay` previews are relative to it.
         let windowCGFrame: CGRect? = cbState.withLock { state -> CGRect? in
             guard let target = state.tileTarget else { return nil }
-            switch hit {
-            case .tile(let screen, let zone)?:
-                state.tileZone = zone
-                state.tileTargetScreen = screen
-                state.tileAction = nil
-            case .action(let action)?:
-                state.tileZone = nil
-                state.tileTargetScreen = nil
-                state.tileAction = action
-            case nil:
-                state.tileZone = nil
-                state.tileTargetScreen = nil
-                state.tileAction = nil
-            }
+            state.tileZone = hit?.zone
+            state.tileTargetScreen = hit?.screen
             if hit != nil { state.tileSawDirection = true }
             return target.frame
         }
         guard let windowCGFrame else { return }
-        switch hit {
-        case .tile(let screen, let zone)?:
+        if let hit {
             // Same `centeredFraction` and source the commit uses (`applyTile`)
             // — the preview must show where the window will actually land.
-            let target = zone.rect(in: screen.visibleFrame,
-                                   centeredFraction: centeredFraction,
-                                   source: tileSource(forWindowCGFrame: windowCGFrame))
+            let target = hit.zone.rect(in: hit.screen.visibleFrame,
+                                       centeredFraction: centeredFraction,
+                                       source: tileSource(forWindowCGFrame: windowCGFrame))
             tileOverlay.show(rect: target)
-        case .action?, nil:
-            // A light doesn't move the window, so there is no landing spot to
-            // preview; the light's own highlight and label are the feedback.
+            tileCancelDot.setActive(hit)
+        } else {
             tileOverlay.hide()
+            tileCancelDot.setActive(nil)
         }
-        tileCancelDot.setActive(hit)
     }
 
     private func handleOtherMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -1623,34 +1604,27 @@ final class DragEngine {
             let origin: CGPoint
             let zone: TileZone?
             let targetScreen: NSScreen?
-            let action: WindowAction?
             let sawDirection: Bool
         }
         let tileFinish: TileFinish? = cbState.withLock { state -> TileFinish? in
             guard let target = state.tileTarget, let origin = state.middleClickOrigin else { return nil }
             let zone = state.tileZone
             let targetScreen = state.tileTargetScreen
-            let action = state.tileAction
             let sawDirection = state.tileSawDirection
             state.tileTarget = nil
             state.middleClickOrigin = nil
             state.tileZone = nil
             state.tileTargetScreen = nil
-            state.tileAction = nil
             state.tileSawDirection = false
             state.tileDotShown = false
             return TileFinish(target: target, origin: origin, zone: zone,
-                              targetScreen: targetScreen, action: action,
-                              sawDirection: sawDirection)
+                              targetScreen: targetScreen, sawDirection: sawDirection)
         }
         if let finish = tileFinish {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.tileCancelDot.hide()
-                if let action = finish.action {
-                    self.tileOverlay.hide()
-                    self.performWindowAction(action, target: finish.target)
-                } else if let zone = finish.zone, let screen = finish.targetScreen {
+                if let zone = finish.zone, let screen = finish.targetScreen {
                     self.applyTile(zone: zone, target: finish.target, screen: screen)
                 } else if finish.sawDirection {
                     self.tileOverlay.hide()
@@ -2309,69 +2283,6 @@ final class DragEngine {
             return true
         }
         Self.log.warn("minimize: pressing the minimize button failed (err=\(pressErr.rawValue)) for app=\"\(app)\"")
-        return false
-    }
-
-    /// Commit one of the bento's traffic lights on the gesture's window. All
-    /// three are single AX calls made once at release — nothing per-frame.
-    private func performWindowAction(_ action: WindowAction,
-                                     target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
-        guard axGuardOrAbort("performWindowAction") else { return }
-        Analytics.trackTile(tile: action.analyticsKey, trigger: .middleDirection)
-        guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else {
-            Self.log.warn("window action \(action): findAXWindow returned nil for pid=\(target.pid) wid=\(target.windowID)")
-            return
-        }
-        Self.log.info("window action commit: app=\"\(target.app)\" wid=\(target.windowID) action=\(action)")
-        let done: Bool
-        switch action {
-        case .close:
-            // Press the window's own close button rather than anything
-            // stronger: the app then handles it exactly as a click on red —
-            // "save changes?" sheets included.
-            done = pressWindowButton(axWindow, kAXCloseButtonAttribute, name: "close", app: target.app)
-        case .minimize:
-            done = minimizeWindow(axWindow, app: target.app)
-        case .fullScreen:
-            done = toggleFullScreen(axWindow, app: target.app)
-        }
-        // A window that left its spot is no longer half of a linked pair.
-        if done {
-            linkedResizeController.removeWindow(target.windowID)
-        }
-    }
-
-    /// Toggle native full screen, the same thing the green button does. The
-    /// `AXFullScreen` attribute is what the system's own window menu uses;
-    /// apps that don't expose it settable get their green button pressed.
-    private func toggleFullScreen(_ axWindow: AXUIElement, app: String) -> Bool {
-        let attribute = "AXFullScreen" as CFString
-        var currentRef: CFTypeRef?
-        let isFullScreen = AXUIElementCopyAttributeValue(axWindow, attribute, &currentRef) == .success
-            && (currentRef as? Bool) == true
-        let err = AXUIElementSetAttributeValue(axWindow, attribute, (!isFullScreen) as CFBoolean)
-        if err == .success {
-            Self.log.info("full screen: app=\"\(app)\" \(isFullScreen ? "exit" : "enter") via AXFullScreen")
-            return true
-        }
-        Self.log.warn("full screen: AXFullScreen failed (err=\(err.rawValue)) for app=\"\(app)\" — trying its full-screen button")
-        return pressWindowButton(axWindow, kAXFullScreenButtonAttribute, name: "full-screen", app: app)
-    }
-
-    /// Press one of a window's title-bar buttons over accessibility.
-    private func pressWindowButton(_ axWindow: AXUIElement, _ attribute: String, name: String, app: String) -> Bool {
-        var buttonRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(axWindow, attribute as CFString, &buttonRef) == .success,
-              let button = buttonRef, CFGetTypeID(button) == AXUIElementGetTypeID() else {
-            Self.log.warn("\(name): app=\"\(app)\" has no \(name) button — window left as is")
-            return false
-        }
-        let err = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
-        if err == .success {
-            Self.log.info("\(name): app=\"\(app)\" via \(name) button")
-            return true
-        }
-        Self.log.warn("\(name): pressing the \(name) button failed (err=\(err.rawValue)) for app=\"\(app)\"")
         return false
     }
 

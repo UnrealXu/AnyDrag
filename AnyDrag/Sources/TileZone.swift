@@ -133,39 +133,3 @@ enum TileZone {
         }
     }
 }
-
-// MARK: - Window actions (the bento's traffic lights)
-
-/// The three traffic lights in the current card's top-left corner. Unlike a
-/// `TileZone` these don't produce a rect: they act on the window itself.
-enum WindowAction: CaseIterable {
-    case close
-    case minimize
-    /// The green light: the same native full-screen toggle as a window's own
-    /// green button. Filling the display is already the top-middle cell.
-    case fullScreen
-
-    /// Shown next to the lights while one is selected.
-    var label: String {
-        switch self {
-        case .close:      return NSLocalizedString("windowAction.close", comment: "")
-        case .minimize:   return NSLocalizedString("windowAction.minimize", comment: "")
-        case .fullScreen: return NSLocalizedString("windowAction.fullScreen", comment: "")
-        }
-    }
-
-    var analyticsKey: String {
-        switch self {
-        case .close:      return "close"
-        case .minimize:   return "minimize"
-        case .fullScreen: return "full_screen"
-        }
-    }
-}
-
-/// What the cursor is over in the bento: a tile cell (rect on a display), or
-/// one of the traffic lights.
-enum BentoHit: Equatable {
-    case tile(screen: NSScreen, zone: TileZone)
-    case action(WindowAction)
-}

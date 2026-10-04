@@ -21,9 +21,6 @@
 "tile.restore" = "Restore original size";
 "tile.restore.unavailable" = "Nothing to restore — AnyDrag hasn't moved this window yet";
 "tile.minimize" = "Minimize";
-"windowAction.close" = "Close window";
-"windowAction.minimize" = "Minimize window";
-"windowAction.fullScreen" = "Full screen";
 
 /* Settings — window titles */
 "AnyDrag Settings" = "Settings";
