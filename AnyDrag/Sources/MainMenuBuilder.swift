@@ -76,6 +76,10 @@ enum MainMenuBuilder {
         mainMenu.addItem(windowItem)
         let windowMenu = NSMenu(title: NSLocalizedString("menu.window", comment: ""))
         windowItem.submenu = windowMenu
+        // ⌘W only works through a menu item; performClose: runs the same
+        // path as the red button (the Settings window hides, the app stays).
+        windowMenu.addItem(NSMenuItem(title: NSLocalizedString("menu.close", comment: ""),
+                                      action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
         windowMenu.addItem(NSMenuItem(title: NSLocalizedString("menu.minimize", comment: ""),
                                       action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m"))
         windowMenu.addItem(NSMenuItem(title: NSLocalizedString("menu.zoom", comment: ""),

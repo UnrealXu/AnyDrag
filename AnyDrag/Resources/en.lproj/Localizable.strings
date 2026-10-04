@@ -146,6 +146,7 @@
 "menu.paste" = "Paste";
 "menu.selectAll" = "Select All";
 "menu.window" = "Window";
+"menu.close" = "Close";
 "menu.minimize" = "Minimize";
 "menu.zoom" = "Zoom";
 "menu.bringAllToFront" = "Bring All to Front";

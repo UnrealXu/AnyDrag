@@ -146,6 +146,7 @@
 "menu.paste" = "粘贴";
 "menu.selectAll" = "全选";
 "menu.window" = "窗口";
+"menu.close" = "关闭";
 "menu.minimize" = "最小化";
 "menu.zoom" = "缩放";
 "menu.bringAllToFront" = "前置全部窗口";
