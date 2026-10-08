@@ -1,17 +1,198 @@
 /* Menu Bar */
-"Enabled" = "Enabled";
-"Modifier Key" = "Modifier Key";
-"Launch at Login" = "Launch at Login";
+"Settings…" = "Settings…";
+"Feedback…" = "Feedback…";
 "Check for Updates…" = "Check for Updates…";
+"More Apps by Author…" = "More Apps by Author…";
 "Quit AnyDrag" = "Quit AnyDrag";
 
 /* Usage Tips — %@ is the modifier key symbol */
 "tip.drag" = "%@ + Left-drag: Move window";
 "tip.maximize" = "%@ + Left-double-click: Maximize / Restore";
 "tip.tiling" = "%@ + Right-click: Window tiling";
+"tip.leftResize" = "%@ + Left-drag: Resize window";
 
 /* Tiling Panel */
 "Move & Resize" = "Move & Resize";
 "Fill & Arrange" = "Fill & Arrange";
 "Full Screen" = "Full Screen";
 "Move to %@" = "Move to %@";
+/* Tooltips for the window-action row */
+"tile.centered" = "Center";
+"tile.restore" = "Restore original size";
+"tile.restore.unavailable" = "Nothing to restore — AnyDrag hasn't moved this window yet";
+"tile.minimize" = "Minimize";
+"windowAction.close" = "Close window";
+"windowAction.minimize" = "Minimize window";
+"windowAction.fullScreen" = "Full screen";
+
+/* Settings — window titles */
+"AnyDrag Settings" = "Settings";
+"About AnyDrag" = "About AnyDrag";
+"General" = "General";
+"Advanced" = "Advanced";
+"About" = "About";
+
+/* Permission alert */
+"permission.title" = "AnyDrag Needs Permissions";
+"permission.message" = "AnyDrag requires Accessibility permission to detect the primary modifier and move windows.\n\nPlease grant the permission in System Settings, then return here. AnyDrag will detect the change automatically.";
+"permission.openSettings" = "Open System Settings";
+"permission.quit" = "Quit";
+
+/* Settings — sidebar chrome */
+"nav.toggleSidebar" = "Toggle Sidebar";
+"status.on" = "AnyDrag is on";
+"status.off" = "AnyDrag is off";
+"status.permission" = "Permission needed";
+
+/* Settings — Language section */
+"Language" = "Language";
+"language.followSystem" = "Follow System";
+
+/* Settings — Modifier section */
+"Modifier Keys" = "Modifier Keys";
+"label.primaryModifier" = "Primary Modifier";
+"Command" = "Command";
+"Shift" = "Shift";
+"Option" = "Option";
+"Control" = "Control";
+"fn" = "fn";
+"Hyper" = "Hyper";
+/* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
+"modifier.preview.format" = "Hold %1$@ (%2$@) to use AnyDrag";
+"modifier.preview.empty" = "AnyDrag is off — choose a primary modifier to enable";
+"modifier.hyper.hint" = "Hyper = hold CapsLock. Requires HyperCapslock running with “Hold CapsLock to drag windows (AnyDrag)” enabled.";
+
+/* Settings — Features section */
+"Features" = "Features";
+"section.windowDrag"   = "Window Drag";
+"section.windowResize" = "Window Resize";
+/* Window Resize — trigger picker (Off / Right-drag / Left-drag) */
+"resizeTrigger.right" = "Right-drag";
+"resizeTrigger.left"  = "Left-drag";
+"resizeTrigger.off.subtitle"   = "Window resize is off.";
+"resizeTrigger.right.subtitle" = "Hold the primary modifier + right-drag to resize from the nearest window corner.";
+/* %@ = the Left-drag Resize Modifier symbol (e.g. ⇧) the user has set */
+"resizeTrigger.left.subtitle"  = "Hold %@ and left-drag to resize from the nearest window corner.";
+"leftResize.augment"          = "Left-drag Resize Modifier";
+"feature.cornerBracket"          = "Corner Bracket";
+"feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";
+"feature.linkedResize"          = "Linked resize";
+"feature.linkedResize.subtitle" = "Drag the shared edge between two tiled windows to resize both at once.";
+"feature.multiDisplayBento"          = "Show all displays in tile panel";
+"feature.multiDisplayBento.subtitle" = "When middle-click is set to \"Tile by direction\" and multiple displays are connected, the bento panel lays out every display at its real arrangement so you can pick any display × any zone in one gesture.";
+"feature.tileDragOnly"          = "Drag-only trigger mode";
+"feature.tileDragOnly.subtitle" = "With \"Tile by direction\", only show the tile panel after you hold the middle button and move the cursor. A plain middle-click stays fully native and never flashes the panel.";
+"feature.overlayEdgeSafe"          = "Keep tile panel on screen";
+"feature.overlayEdgeSafe.subtitle" = "Near a screen edge, keep the whole tile panel visible and move the cursor to its center. Turn off to show the panel at the cursor without moving it.";
+
+/* Settings — Tile panel look */
+"bentoAppearance.section"        = "Tile panel look";
+"feature.bentoBorder"           = "Show border";
+"feature.bentoBorder.subtitle"  = "Outline the tile panel and the app-name label with a thin border, so its edges stay clear on top of another window.";
+"feature.bentoWindowActions"          = "Show close, minimize, and full-screen buttons";
+"feature.bentoWindowActions.subtitle" = "Add a strip under the tile panel: release on it to close, minimize, or full-screen the window.";
+"feature.bentoMaterial"          = "Panel material";
+"feature.bentoMaterial.subtitle" = "The panel's frosted glass. The default follows the system and looks a lot like any window; a darker or more solid material separates it from what's behind.";
+"feature.bentoTint"          = "Panel tint";
+"feature.bentoTint.subtitle" = "Add a thin layer of colour over the frosted glass. Still translucent, but no longer blends into the window behind it.";
+"bentoMaterial.popover"      = "Default (follows system)";
+"bentoMaterial.menu"         = "Menu (more solid)";
+"bentoMaterial.toolTip"      = "Tooltip (brighter)";
+"bentoMaterial.hud"          = "Always dark";
+"bentoMaterial.fullScreenUI" = "Dark, more see-through";
+"bentoMaterial.heavyBlur"    = "Heavy blur";
+"bentoMaterial.sidebar"      = "Sidebar (most see-through)";
+"bentoTint.none"    = "None";
+"bentoTint.neutral" = "Neutral (a shade deeper)";
+"bentoTint.accent"  = "System accent colour";
+"bentoTint.brand"   = "AnyDrag orange";
+"Drag window" = "Drag window";
+"Maximize / Restore" = "Maximize / Restore";
+"Window tiling" = "Window tiling";
+"feature.drag.subtitle" = "Hold the primary modifier and drag anywhere on a window";
+"feature.maximize.subtitle" = "Hold the primary modifier and double-click to maximize or restore";
+"feature.tiling.subtitle" = "Hold the primary modifier and right-click to open the tiling panel";
+
+/* Settings — Middle-click action */
+"Middle-click action" = "Middle-click action";
+"Off" = "Off";
+"Tile by direction" = "Tile by direction";
+"middleAction.off.subtitle" = "Middle-click passes through to the app.";
+"middleAction.drag.subtitle" = "Press and hold the middle button to drag any window.";
+"middleAction.tile.subtitle" = "Hold the middle button and drag in a direction to tile.";
+
+/* Settings — Accessibility permission row */
+"accessibility.row.title" = "Accessibility Permission";
+"accessibility.granted" = "Granted";
+"accessibility.notGranted" = "Not Granted";
+"accessibility.grantButton" = "Authorize";
+
+/* Settings — App icon (menu bar / Dock), issue #52 */
+"appIcon.title" = "Show App Icon In";
+"appIcon.menuBar" = "Menu Bar";
+"appIcon.dock" = "Dock";
+"appIcon.both" = "Menu Bar and Dock";
+"appIcon.hint" = "AnyDrag keeps working in the background either way. To open this window again, click the Dock icon or launch AnyDrag a second time.";
+
+/* Main menu (shown when the Dock icon is on) */
+"menu.hideApp" = "Hide %@";
+"menu.hideOthers" = "Hide Others";
+"menu.showAll" = "Show All";
+"menu.edit" = "Edit";
+"menu.undo" = "Undo";
+"menu.redo" = "Redo";
+"menu.cut" = "Cut";
+"menu.copy" = "Copy";
+"menu.paste" = "Paste";
+"menu.selectAll" = "Select All";
+"menu.window" = "Window";
+"menu.close" = "Close";
+"menu.minimize" = "Minimize";
+"menu.zoom" = "Zoom";
+"menu.bringAllToFront" = "Bring All to Front";
+
+/* Settings — Launch at Login */
+"Launch at Login" = "Launch at Login";
+
+/* Settings — Diagnostics */
+"Diagnostics" = "Diagnostics";
+"diagnostics.advanced.note" = "Advanced setting — leave the values as they are unless you need to tune them.";
+"diagnostics.showDot" = "Show synthesized-click dot";
+"diagnostics.showDot.subtitle" = "Show a marker at the synthesized click point during drag (title bar) and resize (window corner).";
+"diagnostics.titleBarYOffset" = "Title-bar Y offset";
+"diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default %d pt.";
+"diagnostics.resizeCornerInset" = "Resize corner inset";
+"diagnostics.resizeCornerInset.hint" = "How far inside the window's corner the resize click lands. Larger values for apps with rounded outer corners (Safari, Finder). Default 5 pt.";
+"diagnostics.reset" = "Reset";
+
+/* Settings — Window Drag → Advanced Tweaks (centered window size, per-app title-bar Y offset) */
+"section.advanced" = "Advanced Tweaks";
+"centeredSize.title" = "Centered window size";
+"centeredSize.note" = "Used by Center in the right-click tiling panel and by the middle-click drag-down center. Default 85%. At 50% the window is half as wide and half as tall — a quarter of the screen area.";
+/* %d = size in percent. The doubled %% renders as a single percent sign. */
+"centeredSize.value.format" = "%d%%";
+"perAppOffset.note" = "Override the title-bar Y offset for specific apps. Apps not listed here use the global value (General → Diagnostics).";
+"perAppOffset.add" = "Add app…";
+"perAppOffset.remove" = "Use global offset";
+
+/* Settings — Excluded apps (blacklist) */
+"blacklist.title" = "Excluded Apps";
+"blacklist.note" = "On these apps, AnyDrag does not engage at all.";
+"blacklist.empty" = "No excluded apps yet.";
+"blacklist.add" = "Add app";
+"blacklist.remove" = "Remove app";
+"blacklist.runningApps" = "Running Apps";
+"blacklist.noRunningApps" = "No other apps running";
+"blacklist.browse" = "Browse…";
+"blacklist.choose" = "Choose";
+
+/* About pane */
+/* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
+"about.version.format" = "Version %1$@ (%2$@)";
+"about.copyright" = "© 2026 Xueshi Qiao";
+"about.website.description" = "Check out all apps I created at:";
+"GitHub Repository" = "GitHub Repository";
+
+/* About — analytics opt-out (co-located with the disclosure line) */
+"about.analytics.toggle" = "Send anonymous usage data";
+"about.analytics.subtitle" = "Helps us understand which features are used. No personal data, app names, or window contents are collected.";

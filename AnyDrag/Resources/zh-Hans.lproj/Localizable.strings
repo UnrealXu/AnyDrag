@@ -1,17 +1,198 @@
 /* Menu Bar */
-"Enabled" = "启用";
-"Modifier Key" = "修饰键";
-"Launch at Login" = "登录时启动";
+"Settings…" = "设置…";
+"Feedback…" = "反馈…";
 "Check for Updates…" = "检查更新…";
+"More Apps by Author…" = "作者的更多应用…";
 "Quit AnyDrag" = "退出 AnyDrag";
 
 /* Usage Tips — %@ is the modifier key symbol */
-"tip.drag" = "%@ + 左键拖动：移动窗口";
-"tip.maximize" = "%@ + 左键双击：最大化 / 恢复";
-"tip.tiling" = "%@ + 右键：窗口布局";
+"tip.drag" = "%@ + 左键拖动:移动窗口";
+"tip.maximize" = "%@ + 左键双击:最大化 / 恢复";
+"tip.tiling" = "%@ + 右键:窗口布局";
+"tip.leftResize" = "%@ + 左键拖动:缩放窗口";
 
 /* Tiling Panel */
 "Move & Resize" = "移动与调整大小";
 "Fill & Arrange" = "填充与排列";
 "Full Screen" = "全屏";
 "Move to %@" = "移动到 %@";
+/* 窗口操作那一行的提示文字 */
+"tile.centered" = "居中";
+"tile.restore" = "恢复原始大小";
+"tile.restore.unavailable" = "没有可恢复的尺寸 —— AnyDrag 还没动过这个窗口";
+"tile.minimize" = "最小化";
+"windowAction.close" = "关闭窗口";
+"windowAction.minimize" = "最小化窗口";
+"windowAction.fullScreen" = "全屏";
+
+/* Settings — window titles */
+"AnyDrag Settings" = "设置";
+"About AnyDrag" = "关于 AnyDrag";
+"General" = "通用";
+"Advanced" = "高级";
+"About" = "关于";
+
+/* Permission alert */
+"permission.title" = "AnyDrag 需要授权";
+"permission.message" = "AnyDrag 需要「辅助功能」权限,用于检测主修饰键和移动窗口。\n\n请在系统设置中授权,然后回到这里。AnyDrag 会自动检测到授权变化。";
+"permission.openSettings" = "打开系统设置";
+"permission.quit" = "退出";
+
+/* Settings — sidebar chrome */
+"nav.toggleSidebar" = "显示/隐藏边栏";
+"status.on" = "AnyDrag 已开启";
+"status.off" = "AnyDrag 已关闭";
+"status.permission" = "需要授权";
+
+/* Settings — Language section */
+"Language" = "语言";
+"language.followSystem" = "跟随系统";
+
+/* Settings — Modifier section */
+"Modifier Keys" = "修饰键";
+"label.primaryModifier" = "主修饰键";
+"Command" = "Command";
+"Shift" = "Shift";
+"Option" = "Option";
+"Control" = "Control";
+"fn" = "fn";
+"Hyper" = "Hyper";
+/* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
+"modifier.preview.format" = "按住 %1$@ (%2$@) 使用 AnyDrag";
+"modifier.preview.empty" = "AnyDrag 已关闭 — 选择主修饰键以启用";
+"modifier.hyper.hint" = "Hyper = 按住 CapsLock。需运行 HyperCapslock 并启用“按住 CapsLock 拖动窗口（AnyDrag）”。";
+
+/* Settings — Features section */
+"Features" = "功能";
+"section.windowDrag"   = "窗口拖动";
+"section.windowResize" = "窗口缩放";
+/* 窗口缩放 — 触发方式选择(关闭 / 右键拖动 / 左键拖动) */
+"resizeTrigger.right" = "右键拖动";
+"resizeTrigger.left"  = "左键拖动";
+"resizeTrigger.off.subtitle"   = "不缩放窗口。";
+"resizeTrigger.right.subtitle" = "按住主修饰键 + 右键拖动,从最近的窗口角缩放。";
+/* %@ = 用户当前设置的左键缩放修饰键符号(如 ⇧) */
+"resizeTrigger.left.subtitle"  = "按住 %@ 左键拖动,从最近的窗口角缩放。";
+"leftResize.augment"          = "左键缩放修饰键";
+"feature.cornerBracket"          = "角标指示线";
+"feature.cornerBracket.subtitle" = "缩放时在被抓的窗口角显示发光指示线。关掉可获得更好性能——开启时每秒约读取 30 次窗口位置。";
+"feature.linkedResize"          = "联动缩放";
+"feature.linkedResize.subtitle" = "拖动两个已平铺窗口之间的公共边,同时缩放两个窗口。";
+"feature.multiDisplayBento"          = "面板内显示所有显示器";
+"feature.multiDisplayBento.subtitle" = "当鼠标中键设为「按方向平铺」并连接了多块显示器时,bento 面板会按真实物理布局画出所有显示器,一次手势就能挑「目标显示器 × 目标区域」。";
+"feature.tileDragOnly"          = "仅拖动时触发";
+"feature.tileDragOnly.subtitle" = "在「按方向平铺」下,只有按住中键并移动光标后才弹出平铺面板。普通中键单击保持完全原生,不会闪现面板。";
+"feature.overlayEdgeSafe"          = "让平铺面板始终完整显示";
+"feature.overlayEdgeSafe.subtitle" = "靠近屏幕边缘时,让整个平铺面板保持可见,并把光标移到面板中心。关掉则在光标处直接显示面板,不移动光标。";
+
+/* Settings — 平铺面板外观 */
+"bentoAppearance.section"        = "平铺面板外观";
+"feature.bentoBorder"           = "显示边框";
+"feature.bentoBorder.subtitle"  = "给平铺面板和上方的应用名标签描一道细边,盖在别的窗口上时更容易看清边界。";
+"feature.bentoWindowActions"          = "显示关闭、最小化、全屏按钮";
+"feature.bentoWindowActions.subtitle" = "在平铺面板下方加一条按钮,松开在上面即可关闭、最小化或全屏窗口。";
+"feature.bentoMaterial"          = "面板材质";
+"feature.bentoMaterial.subtitle" = "面板的毛玻璃底。默认跟随系统,和窗口很接近;换成深色或更实的材质,会更容易和背后的窗口分开。";
+"feature.bentoTint"          = "面板染色";
+"feature.bentoTint.subtitle" = "在毛玻璃上加一层很薄的颜色,仍然是半透明,但不容易和背后的窗口混在一起。";
+"bentoMaterial.popover"      = "默认(跟随系统)";
+"bentoMaterial.menu"         = "菜单(稍实)";
+"bentoMaterial.toolTip"      = "提示气泡(更亮)";
+"bentoMaterial.hud"          = "始终深色";
+"bentoMaterial.fullScreenUI" = "深色·更透";
+"bentoMaterial.heavyBlur"    = "重模糊";
+"bentoMaterial.sidebar"      = "侧边栏(最透)";
+"bentoTint.none"    = "无";
+"bentoTint.neutral" = "中性(深一档)";
+"bentoTint.accent"  = "系统强调色";
+"bentoTint.brand"   = "AnyDrag 橙";
+"Drag window" = "拖动窗口";
+"Maximize / Restore" = "最大化 / 恢复";
+"Window tiling" = "窗口平铺";
+"feature.drag.subtitle" = "按住主修饰键,在窗口任意处拖动";
+"feature.maximize.subtitle" = "按住主修饰键,双击窗口最大化或恢复";
+"feature.tiling.subtitle" = "按住主修饰键,右键打开平铺面板";
+
+/* Settings — Middle-click action */
+"Middle-click action" = "鼠标中键动作";
+"Off" = "关闭";
+"Tile by direction" = "按方向平铺";
+"middleAction.off.subtitle" = "鼠标中键事件会透传给当前应用。";
+"middleAction.drag.subtitle" = "按住鼠标中键即可拖动任意窗口。";
+"middleAction.tile.subtitle" = "按住鼠标中键并向某个方向拖动即可平铺窗口。";
+
+/* Settings — Accessibility permission row */
+"accessibility.row.title" = "辅助功能权限";
+"accessibility.granted" = "已授权";
+"accessibility.notGranted" = "未授权";
+"accessibility.grantButton" = "授权";
+
+/* Settings — App icon (menu bar / Dock), issue #52 */
+"appIcon.title" = "App 图标显示在";
+"appIcon.menuBar" = "菜单栏";
+"appIcon.dock" = "Dock";
+"appIcon.both" = "菜单栏和 Dock";
+"appIcon.hint" = "无论选哪种，AnyDrag 都会继续在后台工作。要再次打开这个窗口，点一下 Dock 图标，或者再启动一次 AnyDrag。";
+
+/* Main menu (shown when the Dock icon is on) */
+"menu.hideApp" = "隐藏 %@";
+"menu.hideOthers" = "隐藏其他";
+"menu.showAll" = "全部显示";
+"menu.edit" = "编辑";
+"menu.undo" = "撤销";
+"menu.redo" = "重做";
+"menu.cut" = "剪切";
+"menu.copy" = "拷贝";
+"menu.paste" = "粘贴";
+"menu.selectAll" = "全选";
+"menu.window" = "窗口";
+"menu.close" = "关闭";
+"menu.minimize" = "最小化";
+"menu.zoom" = "缩放";
+"menu.bringAllToFront" = "前置全部窗口";
+
+/* Settings — Launch at Login */
+"Launch at Login" = "登录时启动";
+
+/* Settings — Diagnostics */
+"Diagnostics" = "诊断";
+"diagnostics.advanced.note" = "高级设置项,如非必要请保持默认值。";
+"diagnostics.showDot" = "显示模拟点击位置";
+"diagnostics.showDot.subtitle" = "在拖动(标题栏)和缩放(窗口角)的模拟点击位置显示标记。";
+"diagnostics.titleBarYOffset" = "标题栏 Y 偏移";
+"diagnostics.titleBarYOffset.hint" = "模拟点击距离窗口顶边的距离,默认 %d pt。";
+"diagnostics.resizeCornerInset" = "Resize 角内缩量";
+"diagnostics.resizeCornerInset.hint" = "Resize 模拟点击距离窗口角的内缩距离。圆角较大的 app(Safari、Finder)需要更大的值。默认 5 pt。";
+"diagnostics.reset" = "重置";
+
+/* Settings — Window Drag → Advanced Tweaks (centered window size, per-app title-bar Y offset) */
+"section.advanced" = "高级 tweak";
+"centeredSize.title" = "居中窗口大小";
+"centeredSize.note" = "右键平铺面板里的「居中」和中键下滑居中都用这个比例。默认 85%。选 50% 时窗口宽高各取一半，面积是可用区域的四分之一。";
+/* %d = 百分数。两个 %% 渲染成一个百分号。 */
+"centeredSize.value.format" = "%d%%";
+"perAppOffset.note" = "为指定应用单独覆盖标题栏 Y 偏移。未列出的应用使用全局值(通用 → 诊断)。";
+"perAppOffset.add" = "添加应用…";
+"perAppOffset.remove" = "改用全局偏移";
+
+/* Settings — Excluded apps (blacklist) */
+"blacklist.title" = "排除的应用";
+"blacklist.note" = "对这些应用，AnyDrag 完全不接入。";
+"blacklist.empty" = "暂无排除的应用。";
+"blacklist.add" = "添加应用";
+"blacklist.remove" = "移除应用";
+"blacklist.runningApps" = "正在运行的应用";
+"blacklist.noRunningApps" = "没有其他正在运行的应用";
+"blacklist.browse" = "浏览…";
+"blacklist.choose" = "选择";
+
+/* About pane */
+/* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
+"about.version.format" = "版本 %1$@ (%2$@)";
+"about.copyright" = "© 2026 Xueshi Qiao";
+"about.website.description" = "查看我创作的所有应用:";
+"GitHub Repository" = "GitHub 仓库";
+
+/* About — analytics opt-out (co-located with the disclosure line) */
+"about.analytics.toggle" = "发送匿名使用数据";
+"about.analytics.subtitle" = "帮助我们了解哪些功能被使用。不会收集任何个人信息、应用名称或窗口内容。";

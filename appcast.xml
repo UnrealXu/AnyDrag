@@ -5,29 +5,315 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 1.2.3</title>
-      <description><![CDATA[
-<h3>What's New in 1.2.x</h3>
+      <title>Version 26.10.117</title>
+      <description><![CDATA[<h3>What's New in 26.10.117</h3>
 <ul>
-  <li><b>Option + modifier drag to tile</b> — If your AnyDrag modifier is not Option (e.g. fn, Command, Control), you can now hold Option as an extra key to trigger macOS native window tiling while dragging. (Thanks to <a href="https://github.com/goxq">@goxq</a>)</li>
-  <li><b>Sparkle auto-update</b> — AnyDrag now checks for updates automatically via Sparkle.</li>
-  <li><b>New app icon</b></li>
+  <li><b>Show the app icon in the menu bar, the Dock, or both</b> — New in <b>Settings → General → Show App Icon In</b>: <b>Menu Bar</b> (the default, exactly as before), <b>Dock</b>, or <b>Menu Bar and Dock</b>. With the Dock icon on, clicking it — or opening AnyDrag a second time — brings up the Settings window, so hiding the menu bar icon can never lock you out of the app. Switching takes effect immediately, no relaunch needed. Thanks to @hexeric for the request (<a href="https://github.com/XueshiQiao/AnyDrag/issues/52">#52</a>).</li>
+  <li><b>A plain ⌘-click reaches the app again</b> — With Command as the only drag modifier, a ⌘-click that never turned into a drag was swallowed, so ⌘-clicking a link in a browser didn't open it in a new tab. Such a click is now passed through to the app untouched; ⌘-drag moves windows exactly as before. Thanks to @Plazman888 for reporting it (<a href="https://github.com/XueshiQiao/AnyDrag/issues/53">#53</a>).</li>
+</ul>
+
+<h3>26.10.117 更新内容</h3>
+<ul>
+  <li><b>App 图标可以放在菜单栏、Dock，或者两边都放</b> — <b>「设置 → 通用 → App 图标显示在」</b>新增三选一：<b>「菜单栏」</b>（默认，和以前完全一样）、<b>「Dock」</b>、<b>「菜单栏和 Dock」</b>。开着 Dock 图标时，点一下它，或者再启动一次 AnyDrag，就能叫出设置窗口，所以把菜单栏图标藏起来也不会再找不到入口。切换立即生效，不用重启。感谢 @hexeric 提出这个需求（<a href="https://github.com/XueshiQiao/AnyDrag/issues/52">#52</a>）。</li>
+  <li><b>普通的 ⌘ 点击又能传给 app 了</b> — 只用 Command 作为拖动修饰键时，按下 ⌘ 点一下、没有拖动的那次点击会被吞掉，于是在浏览器里 ⌘ 点链接不再会新开标签页。现在这种点击会原样放行给 app；⌘ 拖动窗口和以前完全一样。感谢 @Plazman888 反馈（<a href="https://github.com/XueshiQiao/AnyDrag/issues/53">#53</a>）。</li>
+</ul>
+
+<h3>What's New in 26.10.116</h3>
+<ul>
+  <li><b>Close, minimize, or full-screen a window from the tile panel</b> — The middle-button tile panel now has a strip under the grid of the display you're on: a small close button on the left, minimize across the middle, and a small full-screen button on the right. Hold the middle button, move onto one, and release. Close presses the window's own close button, so an app with unsaved changes still asks before closing; full screen works like the window's green button, and doing it again on a full-screen window exits full screen. To hide the strip, turn off <b>Settings → Middle-click action → Tile by direction → Show close, minimize, and full-screen buttons</b>.</li>
+</ul>
+
+<h3>26.10.116 更新内容</h3>
+<ul>
+  <li><b>在平铺面板里直接关闭、最小化、全屏窗口</b> — 鼠标中键的平铺面板里，当前显示器那张卡片的格子下方多了一条：左边是一个小的关闭按钮，中间一长条是最小化，右边是一个小的全屏按钮。按住鼠标中键移到上面，松开即可。关闭等于按下窗口自己的关闭按钮，有未保存内容的 app 照常会先问你；全屏和窗口的绿色按钮一样，对已经全屏的窗口再做一次就退出全屏。不想要这一条，可以在<b>「设置 → 鼠标中键动作 → 按方向平铺 → 显示关闭、最小化、全屏按钮」</b>里关掉。</li>
+</ul>
+
+<h3>What's New in 26.09.115</h3>
+<ul>
+  <li><b>Dragging windows works again on macOS 27</b> — AnyDrag moves a window by planting a synthesized click just inside its title bar, 3 pt below the window's top edge. macOS 27 no longer accepts a click that high as a title-bar drag, so windows simply stopped moving — with no error, and only in some apps, while resizing kept working throughout. The default is now 4 pt on macOS 27 and later, and stays 3 pt on macOS 26 and earlier. If you had already changed <b>Settings → General → Diagnostics → Title-bar Y offset</b> by hand, your own value is kept — press <b>Reset</b> on that row to take the new default. Thanks to <a href="https://github.com/alejandrovegab">@alejandrovegab</a> (<a href="https://github.com/XueshiQiao/AnyDrag/issues/49">#49</a>) and <a href="https://github.com/hexeric">@hexeric</a> (<a href="https://github.com/XueshiQiao/AnyDrag/issues/51">#51</a>) for reporting it and for pinning down which apps were affected.</li>
+</ul>
+
+<h3>26.09.115 更新内容</h3>
+<ul>
+  <li><b>macOS 27 上窗口又能拖动了</b> — AnyDrag 移动窗口的办法,是在窗口顶边下方 3 pt 处、也就是标题栏里侧,放一个模拟点击。macOS 27 已经不再把这么靠上的点击当作标题栏拖动,于是窗口就是不动——没有任何报错,而且只有一部分 app 受影响,缩放窗口却始终是好的。现在 macOS 27 及以后默认改为 4 pt,macOS 26 及以前仍是 3 pt。如果你自己手动改过<b>「设置 → 通用 → 诊断 → 标题栏 Y 偏移」</b>,你填的值会保留;想用上新的默认值,按那一行的<b>「重置」</b>。感谢 <a href="https://github.com/alejandrovegab">@alejandrovegab</a>(<a href="https://github.com/XueshiQiao/AnyDrag/issues/49">#49</a>)和 <a href="https://github.com/hexeric">@hexeric</a>(<a href="https://github.com/XueshiQiao/AnyDrag/issues/51">#51</a>)反馈,并帮忙确认了受影响的 app 范围。</li>
+</ul>
+
+<h3>What's New in 26.09.114</h3>
+<ul>
+  <li><b>Drag windows that have no title bar</b> — Some windows are much larger than they look. Codex's floating <i>Ask ChatGPT anything</i> bar keeps roughly 180 pt of transparent space above itself for the results panel, so AnyDrag aimed at the top edge of the window, grabbed empty space, and nothing moved. AnyDrag now measures where such a window's visible part starts and grabs that instead — and no longer pulls the app's main window out from behind whatever you had in front when you move one. Windows with an ordinary title bar behave exactly as before. Thanks to <a href="https://github.com/Depixelate">@Depixelate</a> for reporting it (<a href="https://github.com/XueshiQiao/AnyDrag/issues/43">#43</a>).</li>
+  <li><b>The left-drag resize key can be part of your move shortcut</b> — Set the primary modifier to Control + Command and <b>Settings → Window Resize → Left-drag → Left-drag Resize Modifier</b> to Control on its own: Control + drag resizes a window, Control + Command + drag moves it. Only making the two shortcuts identical is still refused. Contributed by <a href="https://github.com/zuozh11">@zuozh11</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/47">#47</a>).</li>
+</ul>
+
+<h3>26.09.114 更新内容</h3>
+<ul>
+  <li><b>没有标题栏的窗口也能拖了</b> — 有些窗口比看上去大一圈:Codex 那个悬浮的 <i>Ask ChatGPT anything</i> 输入条,上方留了大约 180 点的透明区域给结果面板展开。AnyDrag 原本对准窗口的顶边,就抓在了这片空白上,窗口纹丝不动。现在会先量出这类窗口看得见的部分从哪儿开始、抓那儿;拖动它们时也不再把该应用的主窗口从你原本的窗口后面拽到前台。有正常标题栏的窗口行为完全不变。感谢 <a href="https://github.com/Depixelate">@Depixelate</a> 反馈(<a href="https://github.com/XueshiQiao/AnyDrag/issues/43">#43</a>)。</li>
+  <li><b>左键缩放的修饰键可以是移动快捷键的一部分</b> — 把主修饰键设成 Control + Command,再把<b>「设置 → 窗口缩放 → 左键拖动 → 左键缩放修饰键」</b>单独设成 Control:按住 Control 拖动是缩放窗口,按住 Control + Command 拖动是移动窗口。只有两者完全相同时才仍然禁止。感谢 <a href="https://github.com/zuozh11">@zuozh11</a> 贡献(<a href="https://github.com/XueshiQiao/AnyDrag/pull/47">#47</a>)。</li>
+</ul>
+
+<h3>What's New in 26.07.113</h3>
+<ul>
+  <li><b>Send a window to another display, untouched</b> — In the multi-display tile panel (hold the middle button and drag), stopping on the <b>center cell of another display's card</b> now sends the window to that display exactly as it is — same size, same relative position, not tiled. The small rectangle drawn inside that cell previews where it will land. The center cell of the card you started on is still cancel.</li>
+  <li><b>Compatible with BetterMouse</b> — With BetterMouse running, holding Control and dragging a window only popped a context menu; the window never moved. BetterMouse re-applies modifier flags to left-button events from the physical key state, which undid the Control flag AnyDrag has to clear for its title-bar drag — so macOS read every drag as a right-click. AnyDrag now repeats that clear at the very end of the event chain, and creates it at the start of each gesture, so it holds no matter which app launched first or was restarted. Thanks to <a href="https://github.com/Leroy-X">@Leroy-X</a> for reporting it and narrowing it down to BetterMouse in a clean VM (<a href="https://github.com/XueshiQiao/AnyDrag/issues/27">#27</a>). The full investigation is <a href="https://github.com/XueshiQiao/AnyDrag/blob/main/docs/event-tap-conflict-bettermouse.html">written up here</a>.</li>
+  <li><b>Steadier target label</b> — In the multi-display tile panel, the label naming your target now stays anchored over the current display's card.</li>
+</ul>
+
+<h3>26.07.113 更新内容</h3>
+<ul>
+  <li><b>把窗口原封不动地送到另一块屏幕</b> — 多显示器的平铺面板里(按住中键拖动),停在<b>别的屏幕那张卡片的中间格子</b>上,窗口会原封不动地搬到那块屏幕——大小不变、相对位置不变,而不是被平铺。格子里画的小方块就是它落点的预览。手势起始的那张卡片,中间格子仍然是取消。</li>
+  <li><b>兼容 BetterMouse</b> — 开着 BetterMouse 时,按住 Control 拖窗口只会弹出右键菜单,窗口纹丝不动。BetterMouse 会按物理按键的当前状态,把修饰键标记重新盖到左键事件上,于是 AnyDrag 为了实现标题栏拖动而必须抹掉的 Control 标记又被贴了回去——macOS 就把每次拖动都当成了右键。AnyDrag 现在会在事件链的最末端把它再抹一次,并且在每次手势开始时才创建,所以无论两个 App 谁先启动、谁重启过,都能生效。感谢 <a href="https://github.com/Leroy-X">@Leroy-X</a> 反馈,并在干净的虚拟机里把范围缩小到 BetterMouse(<a href="https://github.com/XueshiQiao/AnyDrag/issues/27">#27</a>)。完整的排查过程<a href="https://github.com/XueshiQiao/AnyDrag/blob/main/docs/event-tap-conflict-bettermouse.html">写在这里</a>。</li>
+  <li><b>目标标签不再飘</b> — 多显示器平铺面板里,标注目标的那个标签现在固定显示在当前显示器那张卡片上。</li>
+</ul>
+
+<h3>What's New in 26.07.112</h3>
+<ul>
+  <li><b>Center, Restore original size and Minimize in the tiling panel</b> — The panel you get by holding your modifier and right-clicking a window has a third row under <b>Move &amp; Resize</b>: <b>Center</b>, <b>Restore original size</b> and <b>Minimize</b>. Restore puts a window back the way it was before AnyDrag first moved it, and stays greyed out — "Nothing to restore — AnyDrag hasn't moved this window yet" — for windows AnyDrag never touched. The centered size is now yours to choose in <b>Settings → Window Drag → Advanced Tweaks → Centered window size</b> (50%–85%, default 85%), the same value the middle-button drag-down center uses. Thanks to 小红书 user 配音员泽坤 for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/30">#30</a>).</li>
+  <li><b>A cleaner panel for tile-by-direction</b> — The panel that appears while you hold the middle button and drag has no borders left at all: every connected display is now its own piece of frosted glass with its name in the top-left corner, and the display you're on is marked with a small coloured dot instead of a blue frame. A faint tint in your system accent colour keeps the glass from disappearing into the window behind it.</li>
+</ul>
+
+<h3>26.07.112 更新内容</h3>
+<ul>
+  <li><b>平铺面板新增「居中 / 恢复原始大小 / 最小化」</b> — 按住主修饰键、右键点窗口弹出的平铺面板,「移动与调整大小」下多了第三行:<b>居中</b>、<b>恢复原始大小</b>、<b>最小化</b>。「恢复原始大小」把窗口放回 AnyDrag 第一次动它之前的样子;AnyDrag 没动过的窗口,这个按钮是灰的,提示「没有可恢复的尺寸 —— AnyDrag 还没动过这个窗口」。居中的大小现在可以自己定:<b>设置 → 窗口拖动 → 高级 tweak → 居中窗口大小</b>(50%–85%,默认 85%),和按住中键下滑的居中用的是同一个值。感谢小红书用户 配音员泽坤 提出建议(<a href="https://github.com/XueshiQiao/AnyDrag/issues/30">#30</a>)。</li>
+  <li><b>按方向平铺的面板换了个样子</b> — 按住鼠标中键拖动时弹出的那个面板,现在一根边框都没有了:每台显示器是一块独立的毛玻璃,名字写在左上角,你当前所在的那台用一个小彩点标记,不再用蓝色边框圈起来。玻璃上加了一层很淡的系统强调色,盖在别的窗口上时不会和背景糊成一片。</li>
+</ul>
+
+<h3>What's New in 26.07.111</h3>
+<ul>
+  <li><b>Tile menu closes when you release the modifier</b> — When you hold your modifier and right-click a window to open the tile menu, letting go of that modifier now closes it right away instead of leaving it on screen. Choosing a tile, clicking elsewhere, or pressing Esc still close it too. Thanks to 小红书 user 配音员泽坤 for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/29">#29</a>).</li>
+</ul>
+
+<h3>26.07.111 更新内容</h3>
+<ul>
+  <li><b>松开修饰键即关闭平铺菜单</b> — 按住主修饰键、右键点窗口弹出平铺菜单后,现在一松开该修饰键,菜单就立即关闭,不再留在屏幕上。选择某个平铺格子、点击别处、或按 Esc 也同样可以关闭。感谢小红书用户 配音员泽坤 反馈(<a href="https://github.com/XueshiQiao/AnyDrag/issues/29">#29</a>)。</li>
+</ul>
+
+<h3>What's New in 26.07.110</h3>
+<ul>
+  <li><b>Linked resize for tiled pairs</b> — Tile two windows into a complementary pair (left + right, or top + bottom), then move the pointer to their shared seam and drag with the plain left button to resize both at once. Toggle it under <b>Settings → Middle-click action → Linked resize</b>. Contributed by <a href="https://github.com/eunrui">@eunrui</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/26">#26</a>).</li>
+  <li><b>Tile panel stays fully on screen</b> — Near a screen edge, the middle-click tile panel now keeps itself fully visible and glides the cursor to its center. Prefer it right at the cursor instead? Turn off <b>Settings → Middle-click action → Keep tile panel on screen</b>. Contributed by <a href="https://github.com/eunrui">@eunrui</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/22">#22</a>).</li>
+  <li><b>No more frozen clicks after revoking Accessibility</b> — Turning off AnyDrag's Accessibility permission while it's running no longer risks freezing mouse clicks system-wide — AnyDrag now fails safe, recovers on its own, and re-prompts for permission. Contributed by <a href="https://github.com/eunrui">@eunrui</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/24">#24</a>).</li>
+  <li><b>Cleaner tile overlay</b> — Fixed the white corners that could show around the middle-click tile overlay. Contributed by <a href="https://github.com/eunrui">@eunrui</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/23">#23</a>).</li>
+</ul>
+
+<h3>26.07.110 更新内容</h3>
+<ul>
+  <li><b>平铺窗口对的联动缩放</b> — 把两个窗口平铺成互补的一对(左半 + 右半,或上半 + 下半),再把光标移到它们中间的公共边,用普通左键拖动即可同时缩放两个窗口。可在<b>「设置 → 鼠标中键动作 → 联动缩放」</b>里开关。感谢 <a href="https://github.com/eunrui">@eunrui</a> 贡献(<a href="https://github.com/XueshiQiao/AnyDrag/pull/26">#26</a>)。</li>
+  <li><b>平铺面板始终完整显示</b> — 靠近屏幕边缘时,中键平铺面板现在会保持完整可见,并把光标滑到面板中心。想让它就在光标处出现?可关闭<b>「设置 → 鼠标中键动作 → 让平铺面板始终完整显示」</b>。感谢 <a href="https://github.com/eunrui">@eunrui</a> 贡献(<a href="https://github.com/XueshiQiao/AnyDrag/pull/22">#22</a>)。</li>
+  <li><b>撤销辅助功能权限后不再冻结点击</b> — 在 AnyDrag 运行时关闭它的辅助功能权限,不再有冻结全系统鼠标点击的风险——AnyDrag 现在会安全失效、自动恢复,并再次弹出权限申请。感谢 <a href="https://github.com/eunrui">@eunrui</a> 贡献(<a href="https://github.com/XueshiQiao/AnyDrag/pull/24">#24</a>)。</li>
+  <li><b>平铺浮层更干净</b> — 修复中键平铺浮层四角可能出现的白边。感谢 <a href="https://github.com/eunrui">@eunrui</a> 贡献(<a href="https://github.com/XueshiQiao/AnyDrag/pull/23">#23</a>)。</li>
+</ul>
+
+<h3>What's New in 26.06.109</h3>
+<ul>
+  <li><b>Native look on macOS 26 (Tahoe)</b> — Rebuilt with the latest macOS SDK, so the app's windows now use the correct native system appearance on macOS 26 — the window buttons and sidebar render at their proper size. Functionally identical to 26.06.108; nothing changes on macOS 13–15.</li>
+</ul>
+
+<h3>26.06.109 更新内容</h3>
+<ul>
+  <li><b>在 macOS 26(Tahoe)上恢复原生外观</b> — 改用最新 macOS SDK 重新构建,应用窗口在 macOS 26 上恢复正确的系统原生外观——红绿灯按钮、侧边栏尺寸都正常了。功能与 26.06.108 完全相同;macOS 13–15 不受影响。</li>
+</ul>
+
+<h3>What's New in 26.06.108</h3>
+<ul>
+  <li><b>Per-app title-bar drag offset</b> — A new <b>Advanced</b> section under <b>Settings → Window Drag</b> lets you set a custom title-bar drag offset for individual apps, overriding the global default. Handy for apps whose title bar sits higher or has a custom top region (Chrome, Cherry Studio, …) — every other app keeps using the global value.</li>
+  <li><b>Stepper controls, measured in pt</b> — The per-app and Diagnostics offset controls now use steppers (▲▼) for precise 1-pt adjustments, and values read in <b>pt</b> (the macOS unit) instead of px.</li>
+</ul>
+
+<h3>26.06.108 更新内容</h3>
+<ul>
+  <li><b>按应用单独设置标题栏拖动偏移</b> — 「设置 → 窗口拖动」新增<b>「高级」</b>区,可为指定应用单独设置标题栏拖动偏移,覆盖全局默认值。适合标题栏较高或有自定义顶部区域的应用(Chrome、Cherry Studio 等);未单独设置的应用继续使用全局值。</li>
+  <li><b>偏移控件改用步进器、单位改为 pt</b> — 「高级」和「诊断」里的偏移控件改用步进器(▲▼),可精确按 1 pt 调整;数值单位由 px 改为 <b>pt</b>(macOS 的单位)。</li>
+</ul>
+
+<h3>What's New in 26.06.107</h3>
+<ul>
+  <li><b>Left-drag resize is simpler</b> — Resizing with the left button no longer needs your primary modifier. Just hold the <b>Left-drag Resize Modifier</b> (default Shift) and left-drag to resize from the nearest corner. It stays mutually exclusive with your primary modifier, and you set it under <b>Settings → Window Resize</b>.</li>
+  <li><b>Redesigned Settings</b> — The Settings window is now a native sidebar in the macOS System Settings style, matching the companion app <a href="https://github.com/XueshiQiao/HyperCapslock">HyperCapslock</a>. Same controls, clearer layout — Window Drag, Window Resize, and Middle Click each get their own page.</li>
+</ul>
+
+<h3>26.06.107 更新内容</h3>
+<ul>
+  <li><b>左键缩放更简单了</b> — 用左键缩放窗口不再需要按住主修饰键。只要按住<b>左键缩放修饰键</b>(默认 Shift)左键拖动,即可从最近的窗口角缩放。它依然与主修饰键互斥,可在<b>「设置 → 窗口缩放」</b>里设置。</li>
+  <li><b>设置界面重新设计</b> — 设置窗口现在是 macOS 系统设置风格的原生侧边栏,与配套应用 <a href="https://github.com/XueshiQiao/HyperCapslock">HyperCapslock</a> 保持一致。控件不变、布局更清晰——窗口拖动、窗口缩放、鼠标中键各自独立成页。</li>
+</ul>
+
+<h3>What's New in 26.06.106</h3>
+<ul>
+  <li><b>Resize windows with the left button</b> — <b>Settings → Advanced → Window Resize</b> now lets you choose how resize triggers: hold your primary modifier and <b>right-drag</b>, or hold the primary modifier plus a <b>secondary modifier</b> (default Shift) and <b>left-drag</b>. The two are mutually exclusive — handy if your right mouse button is already bound to something else. Thanks to 小红书-创客编程 for the suggestion.</li>
+  <li><b>Tidier Settings</b> — The "Tile by direction" sub-options now show only when that middle-click action is selected, and the modifier picker now distinguishes a <b>primary</b> modifier from a <b>secondary</b> one.</li>
+</ul>
+
+<h3>26.06.106 更新内容</h3>
+<ul>
+  <li><b>支持左键缩放窗口</b> — 「设置 → 高级 → 窗口缩放」现在可以选择缩放的触发方式:按住主修饰键<b>右键拖动</b>,或按住主修饰键再加一个<b>辅助修饰键</b>(默认 Shift)<b>左键拖动</b>。两种方式二选一——适合右键已经绑定了其他功能的用户。感谢 小红书-创客编程 提出建议。</li>
+  <li><b>设置界面优化</b> — 「按方向平铺」的子选项现在只在选中该中键动作时才显示;修饰键也区分为<b>主修饰键</b>和<b>辅助修饰键</b>。</li>
+</ul>
+
+<h3>What's New in 26.06.105</h3>
+<ul>
+  <li><b>Exclude specific apps</b> — A new <b>Excluded Apps</b> list under <b>Settings → General</b> lets you pick apps where AnyDrag does nothing — no move, resize, or tiling — and the click passes straight through. Useful for apps whose own middle-drag or modifier gestures clash with AnyDrag (design tools, 3D/CAD, remote desktops). Add apps from the running-apps menu or by browsing /Applications. Thanks to 小红书JSON for the suggestion.</li>
+  <li><b>Drag-only trigger mode for the tile gesture</b> — A new switch under <b>Settings → Advanced → Middle-click action</b>: with it on, the tile panel only appears once you hold the middle button and move the cursor, so a plain middle-click stays fully native and never flashes the panel. Off by default — it's for people who already know the tile directions by heart. Thanks to @weixiao-520 for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/14">#14</a>).</li>
+  <li><b>The tile panel now names its target window</b> — During a middle-button tile, a small glass pill floats above the bento overlay showing the icon and name of the window that will be moved, so it's always clear which window you're aiming.</li>
+  <li><b>Diagnostics collapses by default</b> — The Diagnostics section in <b>Settings → General</b> now starts collapsed; click its header to expand. Keeps the everyday settings uncluttered.</li>
+  <li><b>Update prompt no longer hides behind other windows</b> — On macOS 14+, "Check for Updates" now reliably brings its window to the front instead of opening behind whatever app is active (<a href="https://github.com/XueshiQiao/AnyDrag/issues/12">#12</a>).</li>
+</ul>
+
+<h3>26.06.105 更新内容</h3>
+<ul>
+  <li><b>排除指定应用</b> — 「设置 → 通用」新增<b>「排除的应用」</b>列表,可以指定某些应用让 AnyDrag 完全不生效——不移动、不缩放、不平铺,点击原样透传给应用。适合那些自身的中键拖动或修饰键手势会和 AnyDrag 冲突的应用(设计软件、3D/CAD、远程桌面等)。可以从「正在运行的应用」菜单选,或浏览 /Applications 添加。感谢小红书JSON 提出建议。</li>
+  <li><b>平铺手势的「仅拖动时触发」模式</b> — 「设置 → 高级 → 鼠标中键动作」新增一个开关:开启后,只有按住中键并移动光标才会弹出平铺面板,普通中键单击保持完全原生、不会闪现面板。默认关闭——给已经记熟平铺方向的用户。感谢 @weixiao-520 提出建议(<a href="https://github.com/XueshiQiao/AnyDrag/issues/14">#14</a>)。</li>
+  <li><b>平铺面板会标出目标窗口</b> — 中键平铺时,bento 浮层上方会浮出一个小玻璃标签,显示将被移动的窗口的图标和名称,随时清楚自己瞄的是哪个窗口。</li>
+  <li><b>诊断区默认折叠</b> — 「设置 → 通用」里的「诊断」分区现在默认折叠,点标题展开,让常用设置更清爽。</li>
+  <li><b>更新提示不再被其它窗口挡住</b> — 在 macOS 14+ 上,「检查更新」现在会可靠地把窗口带到最前,而不是开在当前应用的后面(<a href="https://github.com/XueshiQiao/AnyDrag/issues/12">#12</a>)。</li>
+</ul>
+
+<h3>What's New in 26.06.104</h3>
+<ul>
+  <li><b>New "Hyper" modifier — arm AnyDrag by holding CapsLock</b> — Choose <b>Hyper</b> (shown as the ⇪ glyph) under <b>Settings → Advanced → Modifier Keys</b>, and AnyDrag's gestures arm whenever you hold CapsLock — no Option/Control/etc. required. This relies on the companion app <a href="https://github.com/XueshiQiao/HyperCapslock">HyperCapslock</a> running with its <b>Hold CapsLock to drag windows (AnyDrag)</b> setting turned on: HyperCapslock turns a held CapsLock into a real hyper key and broadcasts the hold to AnyDrag. If HyperCapslock quits mid-hold, AnyDrag disarms on its own within about a second.</li>
+  <li><b>Hyper and the regular modifiers are mutually exclusive</b> — AnyDrag arms on a CapsLock hold OR a modifier-key combination, never a mix. Selecting Hyper clears any Option/Control/Command/Shift chips (and vice-versa), so the preview always reflects what will actually trigger a drag.</li>
+  <li><b>Crisper Settings sections</b> — Each grouped card now has a hairline border, so the General and Advanced sections read as distinct forms — closer to the macOS System Settings look. Purely visual; same controls.</li>
+</ul>
+
+<h3>26.06.104 更新内容</h3>
+<ul>
+  <li><b>新增「Hyper」修饰键——按住 CapsLock 即可启用 AnyDrag</b> — 在<b>「设置 → 高级 → 修饰键」</b>里选择 <b>Hyper</b>(显示为 ⇪ 字形),此后只要按住 CapsLock,AnyDrag 的手势就会生效,不再需要 Option/Control 等键。该功能依赖配套应用 <a href="https://github.com/XueshiQiao/HyperCapslock">HyperCapslock</a> 在后台运行,并开启其<b>「按住 CapsLock 拖动窗口（AnyDrag）」</b>选项:HyperCapslock 会把长按 CapsLock 变成真正的 hyper 键,并把按住状态广播给 AnyDrag。若 HyperCapslock 在按住过程中退出,AnyDrag 会在约一秒内自动解除。</li>
+  <li><b>Hyper 与普通修饰键互斥</b> — AnyDrag 要么响应「按住 CapsLock」,要么响应一组修饰键,二者不混用。选择 Hyper 会清空已选的 Option/Control/Command/Shift 芯片(反之亦然),让预览始终如实反映真正触发拖动的条件。</li>
+  <li><b>设置分区更清晰</b> — 每个分组卡片现在带一条细边框,「通用」「高级」各区块更像独立的表单,更贴近 macOS 系统设置的观感。纯视觉调整,控件不变。</li>
+</ul>
+
+<h3>What's New in 26.05.103</h3>
+<ul>
+  <li><b>Tile across every display in one gesture</b> — When middle-click is set to "Tile by direction" and you have multiple displays connected, the bento panel now draws all of them at their real arrangement. Aim toward any zone on any display and release — the window lands on the display you aimed at, rather than the one your cursor happens to be over. The home display gets an accent border, and each card is labeled with its display name.</li>
+  <li><b>Tile panel now adapts to light mode</b> — The bento overlay was dark-only before; it now follows the system theme, switching cell, ring, and border colors live when you flip appearance. There's a new <b>Show all displays in tile panel</b> switch in Settings → Advanced → Middle-click action (on by default; turn it off to keep the original single-display panel).</li>
+  <li><b>Refreshed Settings layout</b> — General and Advanced are now organized into rounded cards with hairline row separators, matching the macOS System Settings look. Purely visual — all the same controls, easier to scan.</li>
+</ul>
+
+<h3>26.05.103 更新内容</h3>
+<ul>
+  <li><b>一个手势在所有显示器之间平铺</b> — 当中键动作设为「按方向平铺」且接了多台显示器时,bento 面板现在会按真实排布把所有屏幕一起画出来。朝任意显示器的任意区域拖动后松手,窗口就落在你瞄准的那块显示器上,而不再只能落在光标当前所在的那块屏幕。主显示器带强调色边框,每张卡片下方标注显示器名称。</li>
+  <li><b>平铺面板适配浅色模式</b> — bento 浮层之前只有深色样式,现在会跟随系统主题,切换外观时格子、环、边框颜色实时变化。「设置 → 高级 → 鼠标中键动作」里新增<b>「面板内显示所有显示器」</b>开关(默认开;关掉则回到原来的单显示器面板)。</li>
+  <li><b>设置界面重新排版</b> — 「通用」和「高级」现在整理成圆角卡片、行间用细分隔线,贴近 macOS 系统设置的观感。纯视觉调整,控件不变,更易浏览。</li>
+</ul>
+
+<h3>What's New in 26.05.102</h3>
+<ul>
+  <li><b>Resize any window from anywhere</b> — Hold the same modifier you use for moving (Option by default) and right-click-drag to resize the window from the nearest corner. No more aiming for the thin window edge. The drag uses the same window-server trick AnyDrag already uses for moves — no Accessibility setSize per frame — so the resize is native-feeling and tracks the cursor 1:1. Thanks to heero for the feature suggestion.</li>
+  <li><b>Corner Bracket indicator</b> — A small L-shaped accent-colored glow appears at the active corner during a resize, so you can see which corner the gesture grabbed. Tracks the live window frame, and stops automatically at the dock, screen edge, or any axis the app refuses to resize (e.g. System Settings' fixed width). You can turn it off independently from Settings → Advanced → Window Resize for a quieter UI; doing so also disables the ~30 Hz Accessibility polling that keeps the bracket aligned, for a small performance saving.</li>
+  <li><b>Advanced settings reorganized</b> — Now split into three sections: <b>Window Drag</b>, <b>Window Resize</b>, and <b>Middle-click action</b>. The two new resize switches live in the middle section. The existing <b>Show synthesized-click dot</b> diagnostic switch in General → Diagnostics now flashes a marker for both the move and the resize gestures.</li>
+  <li><b>Resize corner inset diagnostic slider</b> — Under Settings → General → Diagnostics. Controls how far inside the window's corner the synthesized resize click lands; default 5 px works across stock AppKit (Safari, Finder, TextEdit) and Chromium-based apps (Chrome, VS Code). Apps with unusual rounded outer corners can dial it up if their first attempt misses.</li>
+</ul>
+
+<h3>26.05.102 更新内容</h3>
+<ul>
+  <li><b>任意窗口、任意位置开始缩放</b> — 按住和移动窗口同一个修饰键(默认 Option)+ 鼠标右键拖动,即可从最近的窗口角缩放,不再需要瞄准那一两像素宽的窗口边缘。底层与"任意位置拖动移动窗口"使用同一套 window server 技巧——每帧不调一次 AX setSize——所以缩放手感原生顺滑,跟随光标 1:1。感谢 heero 提出这个功能建议。</li>
+  <li><b>角标指示线</b> — 缩放过程中在被抓的窗口角显示一个 L 形发光指示,让你看清楚抓的是哪个角。跟踪窗口实际位置,遇到 Dock、屏幕边缘、或 app 拒绝缩放的方向(如系统设置的固定宽度)会自动停住。可在「设置 → 高级 → 窗口缩放」里独立关闭,关闭后同时会停掉为绘制指示线而做的约 30 Hz Accessibility 轮询,性能略好。</li>
+  <li><b>高级设置面板重组</b> — 现在分成三块:<b>窗口拖动</b>、<b>窗口缩放</b>、<b>鼠标中键动作</b>。两个新的缩放开关在中间这块。「通用 → 诊断」里原有的<b>「显示模拟点击位置」</b>开关现在同时控制移动和缩放两个手势的标记显示。</li>
+  <li><b>「Resize 角内缩量」诊断滑杆</b> — 在「设置 → 通用 → 诊断」。控制模拟点击距离窗口角的内缩距离;默认 5 px 在原生 AppKit (Safari、Finder、TextEdit) 和 Chromium 系应用 (Chrome、VS Code) 上都能用。圆角异常的 app 第一次没成功的话可以手动调大。</li>
+</ul>
+
+<h3>What's New in 26.05.101</h3>
+<ul>
+  <li><b>Re-release of 26.05.100</b> — Fixes an appcast metadata bug that prevented existing 1.4.x users from receiving the 26.05.100 update prompt (Sparkle saw a garbled version field and reported "You're up to date" instead of offering the update). All features and fixes from 26.05.100 are included — see below.</li>
+</ul>
+
+<h3>26.05.101 更新内容</h3>
+<ul>
+  <li><b>26.05.100 的重新发布</b> — 修复了 appcast 元数据生成的一个 bug。该 bug 导致 1.4.x 用户的 Sparkle 拿到的版本号字段是乱码,被错误判定为「已是最新」,从而不会弹出 26.05.100 的更新提示。26.05.100 的全部功能与修复都包含在本版本中——详见下方。</li>
+</ul>
+
+<h3>What's New in 26.05.100</h3>
+<ul>
+  <li><b>The middle-button tile gesture got a real preview panel</b> — Until now, holding the middle button just showed a small cancel ring; you had to memorize that drag-up meant Full Screen, drag-down-right meant Bottom-Right Quarter, and so on. AnyDrag now pops up a tiny screen-shaped panel laid out as a 3×3 grid — each cell shows a mini preview of where the window will land, and the cell under your cursor lights up. The center cell is the cancel zone — release there to abort.</li>
+  <li><b>Frosted-glass overlay</b> — The new tile panel uses macOS vibrancy (<code>.hudWindow</code>), so the desktop and the underlying window blur softly through it — same material family as Control Center and the volume HUD.</li>
+  <li><b>No more stray middle-click after cancelling a tile</b> — Previously, if you dragged out to pick a direction and then dragged back into the cancel area, the underlying app still received a middle-click on release (which could accidentally close a browser tab). Now: a gesture that actively chose a direction and then changed its mind cancels cleanly — no middle-click forwarded. A pure quick tap of the middle button (cursor never left the center) still forwards as before, so middle-click-to-open-tab continues to work.</li>
+  <li><b>First release on the new CalVer version scheme</b> — Version numbers move to <code>YY.MM.&lt;build&gt;</code> (this is build 100). Sparkle compares build numbers, so updates from 1.4.2 still flow correctly.</li>
+</ul>
+
+<h3>26.05.100 更新内容</h3>
+<ul>
+  <li><b>鼠标中键平铺手势加了显示器形状的预览面板</b> — 以前按住中键只会出现一个小小的取消圆环,你得自己记住「往上拖 = 全屏、往右下拖 = 右下角四分之一」等八个方向。现在按下中键会浮出一个小显示器面板,3×3 网格把八个落点全部画出来——每格里是该落点的微缩预览,光标移到哪一格哪一格高亮。中心格是取消区,松手到中心 = 取消本次平铺。</li>
+  <li><b>毛玻璃质感面板</b> — 新面板使用 macOS 原生毛玻璃材质(<code>.hudWindow</code>),背后的桌面和窗口会真实模糊穿透——和「控制中心」、音量调节 HUD 同一套材质。</li>
+  <li><b>取消平铺时不再误发中键点击</b> — 之前如果你拖出一个方向后又拖回取消区松手,底层应用仍会收到一次中键点击(可能误关浏览器标签)。现在:曾经选过方向后又回到中心松手 = 干净取消,不再发中键。如果你只是单纯快速按一下中键(光标从未离开过中心),按原行为转发中键点击,中键打开新标签仍然正常工作。</li>
+  <li><b>首个使用新 CalVer 版本号方案的版本</b> — 版本号迁移到 <code>YY.MM.&lt;build&gt;</code>(此版本为 build 100)。Sparkle 比较的是 build 号,所以从 1.4.2 升级的链路不受影响。</li>
+</ul>
+
+<h3>What's New in 1.4.2</h3>
+<ul>
+  <li><b>Fix: memory grew on every window drag and never came back down</b> — AnyDrag's event tap was over-retaining each mouse event it processed, leaking one system event object per event. During a drag (dozens to hundreds of events per second) memory climbed steadily and never recovered — one report reached 500 MB. The events are now released correctly per the event-tap contract. (Thanks to @eunrui for the clear report in <a href="https://github.com/XueshiQiao/AnyDrag/issues/9">#9</a>.)</li>
+  <li><b>Fix: memory spike during middle-button tile preview</b> — While sliding to preview a tile target, the translucent preview overlay allocated a full-resolution bitmap the size of the previewed region — tens of MB per preview on high-resolution displays. The overlay is now GPU-composited, so it costs almost nothing regardless of the previewed area.</li>
+</ul>
+
+<h3>1.4.2 更新内容</h3>
+<ul>
+  <li><b>修复:每次拖动窗口内存都会增加且不回落</b> — AnyDrag 的事件 tap 在处理每个鼠标事件时多持有了一次引用,导致每经过一个系统事件就泄漏一个事件对象。拖动时鼠标事件每秒高达几十上百个,内存因此持续上涨且降不下来——有用户反馈涨到了 500 MB。现在事件会按照事件 tap 的约定被正确释放。(感谢 @eunrui 在 <a href="https://github.com/XueshiQiao/AnyDrag/issues/9">#9</a> 提交清晰的反馈)</li>
+  <li><b>修复:鼠标中键平铺预览时内存骤增</b> — 滑动预览平铺落点时,那个半透明预览框会按预览区域大小分配一整块全分辨率位图,在高分屏上每次预览要占用几十 MB。现在预览框改由 GPU 合成,无论预览区域多大占用都极小。</li>
+</ul>
+
+<h3>What's New in 1.4.1</h3>
+<ul>
+  <li><b>Refreshed app icon</b> — The icon artwork now uses the correct safe-area padding inside the macOS rounded-square mask, so it sits properly aligned in the Dock, Finder, and Launchpad instead of running edge-to-edge. No functional changes.</li>
+</ul>
+
+<h3>1.4.1 更新内容</h3>
+<ul>
+  <li><b>更新应用图标</b> — 图标素材现在按 macOS 圆角方形遮罩的安全区留出了正确的内边距,在程序坞、访达和启动台中显示更规范,不再顶到边缘。无功能性改动。</li>
+</ul>
+
+<h3>What's New in 1.4.0</h3>
+<ul>
+  <li><b>Fix: Accessibility permission row stuck on "Granted" after revoke</b> — In Settings → General, the Accessibility row continued to display "🟢 Granted" indefinitely after the permission was toggled off in System Settings. AnyDrag now correctly reflects the current permission state shortly after each toggle. (Thanks to <a href="https://github.com/FisherRone">@FisherRone</a> for the careful reproduction and reporting in <a href="https://github.com/XueshiQiao/AnyDrag/issues/7">#7</a>.)</li>
+  <li><b>Fix: revoking Accessibility could freeze every mouse click system-wide</b> — The protection shipped in 1.3.0 regressed in 1.3.2: after a revoke, AnyDrag's recovery path was inadvertently resurrecting the unauthorized event tap instead of tearing it down, leaving it at the head of the system event chain swallowing every click. AnyDrag now detects the revoke reliably and removes the tap cleanly.</li>
+  <li><b>Fix: launch permission alert could be silently skipped</b> — On macOS 14/15, AnyDrag's internal trust probe (a listen-only mouse event tap) would succeed even when Accessibility was actually denied, so the launch flow concluded "permissions OK" and never showed the request alert — the app appeared running but the event tap never started. The launch flow now uses the documented <code>AXIsProcessTrusted()</code> API as the single source of truth, so the alert appears when needed.</li>
+</ul>
+
+<h3>1.4.0 更新内容</h3>
+<ul>
+  <li><b>修复:撤销辅助功能权限后,设置页里依然显示「已授权」</b> — 在「设置 → 通用」中,即便已在系统设置里关掉 AnyDrag 的辅助功能权限,「辅助功能」一行还是会长时间显示「🟢 已授权」。现在切换权限后界面会快速同步到正确状态。(感谢 <a href="https://github.com/FisherRone">@FisherRone</a> 在 <a href="https://github.com/XueshiQiao/AnyDrag/issues/7">#7</a> 仔细复现并提交反馈)</li>
+  <li><b>修复:撤销辅助功能权限可能导致全系统鼠标点击被吞掉</b> — 1.3.0 修过的这个问题在 1.3.2 中悄悄回归:撤销权限后,引擎的恢复路径会反过来「复活」已经失去授权的事件 tap,把它留在系统事件链顶端吞掉所有点击事件。现在 AnyDrag 能可靠识别权限撤销并干净拆除 tap。</li>
+  <li><b>修复:权限未授予时,启动权限请求弹窗可能被静默跳过</b> — 在 macOS 14/15 上,AnyDrag 之前用来探测权限的内部探针(一个 listen-only 鼠标事件 tap)在没有权限时也会创建成功,导致启动流程错误地认为「权限 OK」,既不弹请求也不报错——看起来 app 已经在运行,实际 event tap 根本没起来。启动流程现在改用文档化的 <code>AXIsProcessTrusted()</code> API 作为唯一权限事实,该弹的时候就会弹。</li>
+</ul>
+
+<h3>What's New in 1.3.3</h3>
+<ul>
+  <li><b>Improved diagnostics for "no reaction" reports</b> — When a click with the configured modifier doesn't engage AnyDrag, the log now records the observed vs. expected modifier so reports can be triaged in one round-trip. The app name of the window under the cursor is also captured at engagement points (drag start, maximize toggle, tile commit), so reports like "AnyDrag doesn't work in app X" can be matched to log evidence at a glance. Logs live at <code>~/Library/Logs/AnyDrag/AnyDrag.log</code>.</li>
+</ul>
+
+<h3>1.3.3 更新内容</h3>
+<ul>
+  <li><b>诊断日志增强,方便定位「按了没反应」类问题</b> — 当带修饰键的点击没能触发 AnyDrag 时,日志现在会记录实际按下的修饰键和配置的修饰键,反馈问题时不需要再来回追问。同时在拖动、最大化、平铺等触发点会记录目标 App 的名字,「在某某 App 里不工作」的反馈可以直接对照日志定位。日志位置:<code>~/Library/Logs/AnyDrag/AnyDrag.log</code>。</li>
+</ul>
+
+<h3>What's New in 1.3.2</h3>
+<ul>
+  <li><b>Fix: spurious Input Monitoring permission prompt</b> — A trust probe added in 1.3.0 was listening for keyboard events with a throwaway tap, which made macOS prompt users for Input Monitoring even though AnyDrag never reads keyboard input. The probe now uses a mouse event, so only Accessibility is requested.</li>
+  <li><b>Fix: drag broken on a secondary display positioned above the primary</b> — A long-standing menu-bar-skip check was treating every click with negative CG Y as a menu-bar click, which silently swallowed all clicks on a display arranged above the primary. AnyDrag now works correctly regardless of the display's position relative to the primary. (Thanks to <a href="https://github.com/cpan-NS1">@cpan-NS1</a> for reporting in <a href="https://github.com/XueshiQiao/AnyDrag/issues/4">#4</a>.)</li>
+  <li><b>In-app language picker</b> — Switch the AnyDrag UI between Follow System, English, and 简体中文 from Settings → General. Takes effect immediately, no relaunch.</li>
+  <li><b>Settings reorganized into three tabs</b> — General (language, accessibility permission, launch at login, diagnostics), Advanced (modifier keys, feature toggles, middle-click action), and About. Window width stays stable while you switch tabs.</li>
+  <li><b>Accessibility permission visible in Settings</b> — General tab shows a green dot when authorized, or a one-click Authorize button that opens System Settings when not. The status updates live as you toggle the permission.</li>
+  <li><b>Revoking AX permission no longer freezes the system</b> — In earlier versions, toggling off AnyDrag's Accessibility permission in System Settings would lock the entire macOS input pipeline (no mouse, no keyboard, hard reboot required). AnyDrag now detects the revocation and tears the event tap down cleanly. When permission is granted again it restarts on its own.</li>
+  <li><b>More Apps by Author</b> — New menu-bar item linking to xueshi.dev for quick access to other apps.</li>
+  <li><b>Middle-button tile drag is cancellable</b> — During a middle-button tile-by-direction gesture, drag back into the small dot at the press origin to cancel — even after passing the trigger threshold.</li>
+  <li><b>Diagnostics always visible</b> — The "title-bar Y offset" knob (useful for apps like WeChat with non-standard top bars) and the synthesized-click marker now live under Settings → General → Diagnostics by default. Values persist across launches, with a Reset button to restore the default 3 px.</li>
   <li><b>Bug fixes and stability improvements</b></li>
 </ul>
 
-<h3>1.2.x 更新内容</h3>
+<h3>1.3.2 更新内容</h3>
 <ul>
-  <li><b>Option + 修饰键拖动平铺</b> — 如果 AnyDrag 的修饰键不是 Option（如 fn、Command、Control），现在可以额外按住 Option 键，在拖动窗口时触发 macOS 原生窗口平铺功能。（感谢 <a href="https://github.com/goxq">@goxq</a> 贡献）</li>
-  <li><b>Sparkle 自动更新</b> — AnyDrag 现在通过 Sparkle 自动检查更新。</li>
-  <li><b>新应用图标</b></li>
+  <li><b>修复:错误提示需要"输入监控"权限</b> — 1.3.0 引入的权限探测在创建临时 tap 时把 keyDown 加进了事件 mask,导致 macOS 误以为 AnyDrag 想读键盘,从而弹出"输入监控"权限请求。AnyDrag 实际上从不读键盘——已改成探测鼠标事件,现在只会请求"辅助功能"。</li>
+  <li><b>修复:副屏摆放在主屏正上方时,副屏上无法触发拖动</b> — 历史遗留的菜单栏跳过逻辑只判 Y < 25,而 CG 全屏坐标里副屏位于主屏上方时 Y 为负数,会被误判为"主屏菜单栏点击"而透传,导致 AnyDrag 在该副屏上完全无响应。现在不论副屏摆放方位都能正常工作。(感谢 <a href="https://github.com/cpan-NS1">@cpan-NS1</a> 在 <a href="https://github.com/XueshiQiao/AnyDrag/issues/4">#4</a> 提交反馈)</li>
+  <li><b>应用内语言切换</b> — 在「设置 → 通用」中可在「跟随系统 / English / 简体中文」之间切换 AnyDrag 界面语言,切换立即生效,无需重启。</li>
+  <li><b>设置页重新组织为三个标签页</b> — 通用(语言、辅助功能权限、登录时启动、诊断)、高级(修饰键、功能开关、鼠标中键动作)、关于。切换标签时窗体宽度不再变化。</li>
+  <li><b>设置页中可直接看到辅助功能权限状态</b> — 通用页显示绿点 + 「已授权」,未授权时显示「授权」按钮一键跳转系统设置;权限变化实时刷新。</li>
+  <li><b>撤销辅助功能权限不再导致系统冻结</b> — 之前在系统设置里关闭 AnyDrag 的辅助功能权限会让整个 macOS 输入管道死锁,鼠标键盘全部失灵,只能强制重启。现在 AnyDrag 会立刻检测到权限撤销并干净地拆除事件 tap;重新授权时会自动恢复。</li>
+  <li><b>菜单栏新增「作者的更多应用」入口</b> — 跳转至 xueshi.dev,方便查看作者的其他应用。</li>
+  <li><b>中键平铺手势可取消</b> — 按住中键进行方向平铺时,即使已经越过触发阈值,把光标拖回起点附近的小圆点上即可取消本次平铺。</li>
+  <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
-</ul>
-]]></description>
-      <pubDate>Thu, 02 Apr 2026 15:19:20 +0000</pubDate>
-      <sparkle:version>2</sparkle:version>
-      <sparkle:shortVersionString>1.2.3</sparkle:shortVersionString>
+</ul>]]></description>
+      <pubDate>Sun, 04 Oct 2026 15:31:00 +0000</pubDate>
+      <sparkle:version>117</sparkle:version>
+      <sparkle:shortVersionString>26.10.117</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.3/AnyDrag.dmg" length="3773587" type="application/octet-stream" sparkle:edSignature="SIT8lQTizlgRKdtlor5485rAHSMmZ83h6YUNeI36I8gy72/dzXE2tjZLgSoKO0TH/nmimd/1ynAd8qkM9XeIAQ==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.10.117/AnyDrag.dmg" length="4108856" type="application/octet-stream" sparkle:edSignature="cod0PPlTBYtx+6WKqQEolBiWmGNwgy1Z58Mk6HnfyT938Fr+3lB1hdW6YKe9wC/5HEQog1hVmt7JpLRebOurDA==" />
     </item>
   </channel>
 </rss>

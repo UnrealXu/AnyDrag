@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-layout="dual">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyDrag — Window actions · Design preview</title>
+<style>
+:root{color-scheme:light;--page:#f7f6f3;--ink:#242729;--muted:#6c7276;--line:#dddedb;--paper:#fff;--accent:#007aff;--glass:rgba(231,239,249,.87);--text:#202630;--secondary:#69717e;--tile:rgba(28,41,59,.065);--preview:rgba(29,40,57,.62);--shadow:0 8px 26px rgba(16,27,49,.15);--ring:#929bab}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+button,a,select{-webkit-tap-highlight-color:transparent}
+button,select{font:inherit}
+button{cursor:pointer}
+button:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid #007aff;outline-offset:4px}
+button{color:inherit}
+header,main,footer{max-width:1120px;margin:auto;padding-inline:40px}
+.masthead{display:flex;align-items:center;justify-content:space-between;padding-block:26px;border-bottom:1px solid var(--line);font-size:12px}
+.brand{font-size:16px;font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:9px}
+.brand img{width:25px;height:25px}
+.kicker{text-transform:uppercase;letter-spacing:1.6px;font-size:10px;color:var(--muted);font-weight:650}
+.intro{padding-block:47px 30px;display:grid;grid-template-columns:1.3fr 1fr;gap:35px;align-items:end}
+h1{font-size:clamp(34px,4.4vw,50px);letter-spacing:-2px;line-height:1.08;font-weight:650;margin:13px 0 0}
+h1 span{color:#778187}
+.intro p{color:var(--muted);max-width:405px;margin:0 0 3px;font-size:15px;line-height:1.7}
+.toolbar{position:sticky;top:10px;z-index:20;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--paper);box-shadow:0 4px 14px #17243807}
+.control{display:flex;align-items:center;gap:10px}
+.control>span{color:var(--muted);font-size:11px}
+.segments{display:flex;gap:3px;background:var(--page);padding:3px;border-radius:8px}
+.segments button{border:0;background:transparent;color:var(--muted);padding:6px 11px;border-radius:6px;font-size:12px;white-space:nowrap}
+.segments button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+select{max-width:145px;border:1px solid var(--line);background:var(--paper);padding:6px;border-radius:7px;font-size:12px}
+.option{padding-top:43px;scroll-margin-top:100px}
+.option-head{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:14px}
+.option-title{display:flex;align-items:center;gap:12px}
+.letter{font:500 13px ui-monospace,monospace;color:var(--muted);width:27px;height:27px;border:1px solid var(--line);border-radius:50%;display:grid;place-items:center}
+h2{font-size:20px;letter-spacing:-.5px;font-weight:620;margin:0}
+.badge{font-size:10px;font-weight:600;color:#43694a;background:#e6eddf;padding:4px 9px;border-radius:20px}
+.option-desc{color:var(--muted);font-size:13px;max-width:480px;margin:0;text-align:right}
+.stage{position:relative;border-radius:15px;isolation:isolate;overflow:hidden;background:#ced8e2;background-image:radial-gradient(ellipse at 5% 100%,#95a9c5,transparent 60%),radial-gradient(ellipse at 85% 5%,#f9e3ca,transparent 65%);min-height:430px;display:flex;justify-content:center;align-items:center;padding:90px 28px 47px}
+.stage::before{content:"";position:absolute;width:440px;height:290px;background:rgba(255,255,255,.19);border:1px solid #ffffff33;border-radius:12px;left:-160px;top:70px;transform:rotate(-12deg);z-index:-1}
+.stage-top{position:absolute;top:0;left:0;right:0;padding:12px 16px;display:flex;justify-content:space-between;font-size:10px;color:#465164;background:rgba(255,255,255,.20)}
+.stage-top b{font-weight:600}
+.stage-hint{opacity:.8}
+.fit{position:relative;flex:none}
+.overlay{display:flex;flex-direction:column;align-items:center;position:relative;transform-origin:top left;color:var(--text);user-select:none}
+.cards{display:grid;grid-template-columns:repeat(2,290px);gap:12px;position:relative}
+.display-card{width:290px;border-radius:15px;background:var(--glass);box-shadow:var(--shadow);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px)}
+.card-title{height:25px;padding:10px 14px 2px;display:flex;gap:7px;align-items:center;font:500 10px/13px ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:.8px;color:var(--secondary)}
+.card-title::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.current .card-title{color:var(--accent)}
+.grid{width:290px;height:185px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:5px;padding:12px}
+.tile{background:var(--tile);border:0;position:relative;border-radius:5px;padding:0;color:var(--preview)}
+.tile .mini{position:absolute;inset:5px}
+.mini::before{content:"";position:absolute;border-radius:1.5px;background:currentColor}
+.mini.topLeft::before{left:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px)}
+.mini.full::before{inset:0}
+.mini.topRight::before{right:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px)}
+.mini.left::before{left:0;top:0;bottom:0;width:calc(50% - 1.5px)}
+.mini.right::before{right:0;top:0;bottom:0;width:calc(50% - 1.5px)}
+.mini.bottomLeft::before{left:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px)}
+.mini.centered::before{inset:7.5%}
+.mini.bottomRight::before{right:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px)}
+.mini.move::before{inset:20%}
+.tile.cancel{background:transparent}
+.cancel-ring{position:absolute;width:18px;height:18px;left:50%;top:50%;transform:translate(-50%,-50%);border:1.4px solid var(--ring);border-radius:50%}
+.tile:hover,.tile:focus-visible{background:#007aff60;color:white;box-shadow:inset 0 0 0 1.2px var(--accent)}
+.tile.cancel:hover{background:var(--tile);box-shadow:none}
+.other .grid,.other .card-title{opacity:.82}
+.target{position:absolute;left:145px;top:-46px;transform:translateX(-50%);height:34px;display:flex;align-items:center;gap:9px;background:var(--glass);box-shadow:var(--shadow);padding:8px 14px 8px 9px;border-radius:13px;font-size:14px;font-weight:600;white-space:nowrap}
+.app-icon{height:18px;width:18px;border-radius:5px;display:grid;place-items:center;background:linear-gradient(150deg,#54b8ff,#0671d6);color:white;font-size:13px}
+.display-unit{width:290px;align-self:start;position:relative}
+
+.actions-shell{width:290px;display:flex;flex-direction:column;align-items:center;margin-top:8px;position:relative}
+.lights{display:flex;align-items:center;justify-content:center;gap:2px;padding:1px 7px;border-radius:14px;background:var(--glass);box-shadow:var(--shadow);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px)}
+.light{width:26px;height:26px;border:0;padding:0;display:grid;place-items:center;background:transparent;border-radius:50%;position:relative;flex:none}
+.bulb{width:12px;height:12px;border-radius:50%;background:var(--lamp);display:grid;place-items:center;box-shadow:inset 0 0 0 .6px #0002,inset 0 .6px 0 #fff5;transition:transform .12s}
+.light.close{--lamp:#ff6058;--halo:#ff605831}
+.light.minimize{--lamp:#ffbd2e;--halo:#ffbd2e31}
+.light.green{--lamp:#28c840;--halo:#28c84031}
+.bulb svg{width:8px;height:8px;fill:none;stroke:#0009;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.lights:hover .bulb svg,.lights:focus-within .bulb svg,[data-state="close"] .bulb svg,[data-state="minimize"] .bulb svg,[data-state="green"] .bulb svg{opacity:1}
+.light:hover,.light:focus-visible,[data-state="close"] .light.close,[data-state="minimize"] .light.minimize,[data-state="green"] .light.green{background:var(--halo)}
+.light:hover .bulb,.light:focus-visible .bulb{transform:scale(1.08)}
+.action-hint{height:15px;max-width:280px;font-size:10px;line-height:15px;color:var(--text);margin-top:5px;opacity:0;white-space:nowrap;pointer-events:none}
+.actions-shell[data-active] .action-hint{opacity:1}
+.variant-b .lights{background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;padding:0 3px}
+.variant-b .bulb{box-shadow:inset 0 0 0 .6px #0002,0 1px 3px #12203730}
+.variant-c .actions-shell{margin-top:0;padding:0 0 5px;height:25px}
+.variant-c .lights{padding:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;transform:translateY(-3px)}
+.variant-c .action-hint{position:absolute;top:25px;margin:0}
+.variant-c .display-unit.current{padding-bottom:20px}
+/* D — lights take the title's place (top left); the display name moves to the bottom center */
+.card-head{height:25px;padding:3px 0 0 6px;display:flex;align-items:center}
+.variant-d .actions-shell{width:auto;flex-direction:row;align-items:center;margin:0;gap:6px}
+.variant-d .lights{padding:0;gap:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+.variant-d .light{width:22px;height:22px}
+.variant-d .action-hint{margin:0;height:auto;font:500 10px/13px ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:.8px;color:var(--secondary)}
+.card-title.foot{height:auto;padding:0 14px 9px;margin-top:-4px;justify-content:center}
+.card-title.foot::before{display:none}
+.card-spacer{height:25px}
+.mini-seg{display:inline-flex;gap:2px;background:var(--page);padding:2px;border-radius:7px;margin-left:8px;vertical-align:middle}
+.mini-seg button{border:0;background:transparent;color:var(--muted);padding:3px 9px;border-radius:5px;font-size:11px}
+.mini-seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.option-foot{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:13px 1px 0;font-size:12px;color:var(--muted)}
+.feedback{min-height:18px;color:var(--muted)}
+.choose{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);font-size:12px;white-space:nowrap}
+.choose[aria-pressed="true"]{color:#fff;background:#2b6149;border-color:#2b6149}
+.decision{margin-top:42px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px}
+.decision h3{font-size:14px;margin:0 0 9px}
+.decision p{color:var(--muted);font-size:13px;margin:0;line-height:1.7}
+.decision strong{color:var(--ink);font-weight:550}
+.selection{color:#3e7750;font-weight:550;font-size:13px;margin-top:16px;min-height:20px}
+footer{padding-block:28px 48px;color:var(--muted);font-size:11px;display:flex;justify-content:space-between;gap:20px}
+footer a{color:inherit}
+.single .cards{grid-template-columns:290px}
+.single .card-title{display:none}
+.stacked .cards{grid-template-columns:290px}
+.three .cards{grid-template-columns:repeat(3,290px)}
+[data-theme="dark"]{color-scheme:dark;--page:#171a1d;--ink:#eceeed;--muted:#9ba3aa;--line:#343a3e;--paper:#20252a;--accent:#409dff;--glass:rgba(39,50,68,.90);--text:#f0f3f7;--secondary:#a5b0c0;--tile:rgba(255,255,255,.10);--preview:rgba(255,255,255,.70);--shadow:0 8px 26px rgba(0,0,0,.21);--ring:#a7b0bc}
+[data-theme="dark"] .stage{background-color:#253247;background-image:radial-gradient(ellipse at 0 100%,#3a5070,transparent 70%),radial-gradient(ellipse at 95% 0,#645361,transparent 60%)}
+[data-theme="dark"] .stage-top{color:#ccd6e4;background:#ffffff08}
+[data-theme="dark"] .stage::before{background:#ffffff04;border-color:#ffffff0b}
+[data-theme="dark"] .badge{background:#2c4136;color:#b5d2b5}
+[data-theme="dark"] .selection{color:#b5d2b5}
+
+@media(max-width:760px){header,main,footer{padding-inline:20px}
+.intro{grid-template-columns:1fr;gap:18px;padding-top:30px}
+.toolbar{top:0;border-radius:10px;gap:9px}
+.control{gap:6px}
+.control>span{display:none}
+.segments button{padding-inline:8px}
+.option-head{align-items:flex-start;flex-direction:column;gap:8px}
+.option-desc{text-align:left}
+.stage{padding-inline:18px;min-height:365px}
+.stage-hint{display:none}
+.decision{grid-template-columns:1fr;gap:22px}
+.option-foot{align-items:flex-start}
+.masthead .kicker{font-size:9px}
+footer{flex-wrap:wrap}
+}
+
+@media(prefers-reduced-motion:reduce){*{transition:none!important}
+}
+
+</style>
+</head>
+<body>
+<header>
+  <div class="masthead"><div class="brand"><img src="assets/icon.png" alt="">AnyDrag</div><div class="kicker">Design study / Traffic lights</div></div>
+  <div class="intro"><div><div class="kicker">Bento · Window actions</div><h1>Three familiar lights.<br><span>A much smaller footprint.</span></h1></div><p>A compact red, yellow, and green cluster for the selected window. It stays with the current display’s card. The circles are small; their hit areas leave a little more room for the pointer.</p></div>
+</header>
+<main>
+  <div class="toolbar" aria-label="Preview controls">
+    <div class="control"><span>Displays</span><div class="segments" id="layouts" aria-label="Display arrangement"><button data-layout="single" aria-pressed="false">1 display</button><button data-layout="dual" aria-pressed="true">2 displays</button><button data-layout="stacked" aria-pressed="false">Stacked</button><button data-layout="three" aria-pressed="false">3 displays</button></div></div>
+    <div class="control"><label for="current-display" class="kicker">Current display</label><select id="current-display" aria-label="Current display"></select></div>
+    <div class="control"><span>Appearance</span><div class="segments" id="themes" aria-label="Appearance"><button data-theme="light" aria-pressed="true">Light</button><button data-theme="dark" aria-pressed="false">Dark</button></div></div>
+    <div class="control"><label for="state" class="kicker">State</label><select id="state"><option value="idle">Resting</option><option value="close">Hover · Close</option><option value="minimize">Hover · Minimize</option><option value="green">Hover · Green</option></select></div>
+    <div class="control"><label for="green-action" class="kicker">Green action</label><select id="green-action"><option value="fullscreen">Full screen</option><option value="fill">Fill display</option></select></div>
+  </div>
+  <section class="option" id="option-a">
+    <div class="option-head"><div class="option-title"><span class="letter">A</span><h2>Mini glass capsule</h2><span class="badge">Recommended</span></div><p class="option-desc">Three small lights in a tiny matching glass capsule.<br>Centered directly beneath the current card.</p></div>
+    <div class="stage variant-a" data-variant="a"><div class="stage-top"><b>WINDOW ACTIONS / A</b><span class="stage-hint">Hover or click to preview · no real window changes</span></div><div class="fit"><div class="overlay"></div></div></div>
+    <div class="option-foot"><span class="feedback" role="status">96 × 28 pt capsule · 12 pt lights · 8 pt below the card</span><button class="choose" data-choice="A" aria-pressed="false">Choose A</button></div>
+  </section>
+  <section class="option" id="option-b">
+    <div class="option-head"><div class="option-title"><span class="letter">B</span><h2>Just the lights</h2></div><p class="option-desc">Three colored circles with no surrounding bar.<br>The lightest option; less contrast over a busy background.</p></div>
+    <div class="stage variant-b" data-variant="b"><div class="stage-top"><b>WINDOW ACTIONS / B</b><span class="stage-hint">Hover or click to preview · no real window changes</span></div><div class="fit"><div class="overlay"></div></div></div>
+    <div class="option-foot"><span class="feedback" role="status">12 pt lights · 26 × 26 pt hit areas · no glass container</span><button class="choose" data-choice="B" aria-pressed="false">Choose B</button></div>
+  </section>
+  <section class="option" id="option-c">
+    <div class="option-head"><div class="option-title"><span class="letter">C</span><h2>Inset traffic lights</h2></div><p class="option-desc">Nest the three lights in the current card’s lower edge.<br>One continuous glass surface, with a compact extra row.</p></div>
+    <div class="stage variant-c" data-variant="c"><div class="stage-top"><b>WINDOW ACTIONS / C</b><span class="stage-hint">Hover or click to preview · no real window changes</span></div><div class="fit"><div class="overlay"></div></div></div>
+    <div class="option-foot"><span class="feedback" role="status">25 pt added to the current card · existing grid stays unchanged</span><button class="choose" data-choice="C" aria-pressed="false">Choose C</button></div>
+  </section>
+  <section class="option" id="option-d">
+    <div class="option-head"><div class="option-title"><span class="letter">D</span><h2>Lights where the title was</h2><span class="badge">New</span></div><p class="option-desc">Like a real macOS window: the three lights sit in the current card’s top-left corner.<br>The display name moves to the bottom center of that card.</p></div>
+    <div class="stage variant-d" data-variant="d" data-other-title="top"><div class="stage-top"><b>WINDOW ACTIONS / D</b><span class="stage-hint">Hover or click to preview · no real window changes</span></div><div class="fit"><div class="overlay"></div></div></div>
+    <div class="option-foot"><span class="feedback" role="status">12 pt lights · 22 × 22 pt hit areas · title row reused, about 14 pt added at the bottom</span><span>Other displays’ names<span class="mini-seg" id="other-title"><button data-other="top" aria-pressed="true">Stay on top</button><button data-other="bottom" aria-pressed="false">Also at bottom</button></span></span><button class="choose" data-choice="D" aria-pressed="false">Choose D</button></div>
+  </section>
+  <div class="decision"><div><h3>Why A is the starting point</h3><p>A takes only 96 × 28 pt, uses the same glass as the card, and keeps the familiar red–yellow–green order. The 12 pt circles sit inside separate 26 pt hit areas. Hover reveals the symbols and an action label.</p></div><div><h3>Proposed gesture</h3><p>Red <strong>closes</strong> the selected window. Yellow <strong>minimizes</strong> it. Green proposes <strong>full screen</strong>; the control above also lets you compare <strong>Fill display</strong>. For the app: hold the middle button, move onto a light, then release. Hover alone does nothing; return to the center ring to cancel.</p></div></div>
+  <p class="selection" id="selection" role="status">Select a direction above, then tell me A, B, C, or D in the conversation.</p>
+</main>
+<footer><span>HTML concept only · Grid: 290 × 185 pt · Base multi-display card: 290 × 210 pt</span><span>Scaled to fit narrow previews · <a href="#">Back to top ↑</a></span></footer>
+<script>
+// A standalone visual prototype. All actions below update only this document.
+const root = document.documentElement;
+const zones = ['topLeft','full','topRight','left','cancel','right','bottomLeft','centered','bottomRight'];
+const names = {topLeft:'Top left quarter',full:'Fill screen',topRight:'Top right quarter',left:'Left half',cancel:'Cancel',right:'Right half',bottomLeft:'Bottom left quarter',centered:'Center window',bottomRight:'Bottom right quarter',move:'Move to this display'};
+const displays = ['Built-in Retina Display','Studio Display','DELL U2723QE'];
+const icons = {
+  close:'<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3l-6 6"/></svg>',
+  minimize:'<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8"/></svg>',
+  fullscreen:'<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7 2h3v3M10 2 7 5M5 10H2V7M2 10l3-3"/></svg>',
+  fill:'<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8M6 2v8"/></svg>'
+};
+let layout = 'dual';
+let currentDisplay = 0;
+let greenAction = 'fullscreen';
+function actionLabel(value) {
+  return value === 'close' ? 'Close window' : value === 'minimize' ? 'Minimize window' : greenAction === 'fullscreen' ? 'Toggle full screen' : 'Fill display';
+}
+function action(value) {
+  const label = actionLabel(value);
+  const icon = value === 'green' ? icons[greenAction] : icons[value];
+  return `<button class="light ${value}" data-action="${value}" aria-label="${label}"><span class="bulb">${icon}</span></button>`;
+}
+function card(index, variant) {
+  const title = displays[index];
+  const isCurrent = index === currentDisplay;
+  const row = isCurrent ? `<div class="actions-shell"><div class="lights" role="group" aria-label="Current display window actions">${action('close')}${action('minimize')}${action('green')}</div><span class="action-hint" aria-hidden="true"></span></div>` : '';
+  const tiles = zones.map(zone => {
+    const value = zone === 'cancel' && !isCurrent ? 'move' : zone;
+    return `<button class="tile ${value}" data-tile="${value}" data-display="${index}" title="${names[value]}" aria-label="${names[value]}${layout === 'single' ? '' : ' · ' + title}">${value === 'cancel' ? '<span class="cancel-ring"></span>' : `<span class="mini ${value}"></span>`}</button>`;
+  }).join('');
+  if (variant === 'd') {
+    const foot = `<div class="card-title foot">${title}</div>`;
+    const othersAtBottom = document.querySelector('.variant-d').dataset.otherTitle === 'bottom';
+    const body = isCurrent
+      ? `<div class="card-head">${row}</div><div class="grid">${tiles}</div>${foot}`
+      : othersAtBottom
+        ? `<div class="card-spacer"></div><div class="grid">${tiles}</div>${foot}`
+        : `<div class="card-title">${title}</div><div class="grid">${tiles}</div>`;
+    return `<div class="display-unit ${isCurrent ? 'current' : 'other'}" data-display="${index}"><div class="display-card">${body}</div></div>`;
+  }
+  return `<div class="display-unit ${isCurrent ? 'current' : 'other'}" data-display="${index}"><div class="display-card"><div class="card-title">${title}</div><div class="grid">${tiles}</div>${variant === 'c' ? row : ''}</div>${variant === 'c' ? '' : row}</div>`;
+}
+document.querySelector('#other-title').addEventListener('click', event => {
+  const button = event.target.closest('button'); if (!button) return;
+  document.querySelector('.variant-d').dataset.otherTitle = button.dataset.other;
+  document.querySelectorAll('#other-title button').forEach(item => item.setAttribute('aria-pressed',String(item === button)));
+  render();
+});
+function render() {
+  const count = layout === 'single' ? 1 : layout === 'three' ? 3 : 2;
+  currentDisplay = Math.min(currentDisplay, count - 1);
+  const picker = document.querySelector('#current-display');
+  picker.innerHTML = displays.slice(0,count).map((display,index) => `<option value="${index}">${index + 1} · ${display}</option>`).join('');
+  picker.value = String(currentDisplay);
+  picker.disabled = count === 1;
+  root.dataset.layout = layout;
+  document.querySelectorAll('.stage').forEach(stage => {
+    const overlay = stage.querySelector('.overlay');
+    overlay.className = `overlay ${layout}`;
+    overlay.style.width = `${layout === 'stacked' ? 290 : count * 290 + (count - 1) * 12}px`;
+    const chipX = layout === 'stacked' ? 145 : currentDisplay * 302 + 145;
+    overlay.innerHTML = `<div class="cards"><div class="target" style="left:${chipX}px"><span class="app-icon" aria-hidden="true">↗</span>Safari</div>${Array.from({length:count},(_,i)=>card(i,stage.dataset.variant)).join('')}</div>`;
+  });
+  updateHints();
+  fit();
+}
+function fit() {
+  document.querySelectorAll('.stage').forEach(stage => {
+    const overlay = stage.querySelector('.overlay');
+    const frame = stage.querySelector('.fit');
+    const style = getComputedStyle(stage);
+    const available = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const scale = Math.min(1,available / overlay.offsetWidth);
+    overlay.style.transform = `scale(${scale})`;
+    frame.style.width = `${overlay.offsetWidth * scale}px`;
+    frame.style.height = `${overlay.offsetHeight * scale}px`;
+  });
+}
+document.querySelector('#layouts').addEventListener('click', event => {
+  const button = event.target.closest('button'); if (!button) return;
+  layout = button.dataset.layout;
+  document.querySelectorAll('#layouts button').forEach(item => item.setAttribute('aria-pressed',String(item === button)));
+  render();
+});
+document.querySelector('#current-display').addEventListener('change', event => {
+  currentDisplay = Number(event.target.value);
+  render();
+});
+document.querySelector('#themes').addEventListener('click', event => {
+  const button = event.target.closest('button'); if (!button) return;
+  root.dataset.theme = button.dataset.theme;
+  document.querySelectorAll('#themes button').forEach(item => item.setAttribute('aria-pressed',String(item === button)));
+});
+function updateHints() {
+  document.querySelectorAll('.stage').forEach(stage => {
+    const shell = stage.querySelector('.actions-shell');
+    const active = shell.querySelector('.light:hover') || shell.querySelector('.light:focus-visible');
+    const state = active?.dataset.action || document.querySelector('#state').value;
+    if (state === 'idle') {
+      delete shell.dataset.active;
+      shell.querySelector('.action-hint').textContent = '';
+    } else {
+      shell.dataset.active = state;
+      shell.querySelector('.action-hint').textContent = actionLabel(state);
+    }
+  });
+}
+document.querySelector('#state').addEventListener('change', event => {
+  document.querySelectorAll('.stage').forEach(stage => stage.dataset.state = event.target.value);
+  updateHints();
+});
+document.querySelector('#green-action').addEventListener('change', event => {
+  greenAction = event.target.value;
+  render();
+});
+document.querySelectorAll('.stage').forEach(stage => {
+  for (const event of ['pointerover','pointerout','focusin','focusout']) {
+    stage.addEventListener(event, () => requestAnimationFrame(updateHints));
+  }
+  stage.addEventListener('click', event => {
+    const button = event.target.closest('button'); if (!button) return;
+    let message;
+    if (button.dataset.action) {
+      const messages = {
+        close:'Preview: close the selected Safari window; Safari handles any save prompt.',
+        minimize:'Preview: minimize the selected Safari window to the Dock.',
+        green:greenAction === 'fullscreen' ? 'Preview: toggle native full screen for the selected Safari window.' : 'Preview: fill the usable display area, keeping the menu bar and Dock.'
+      };
+      message = messages[button.dataset.action];
+    } else if (button.dataset.tile) {
+      message = button.dataset.tile === 'cancel' ? 'Preview: cancel the gesture; the window stays where it is.' : `Preview: ${names[button.dataset.tile]} · ${displays[button.dataset.display]}.`;
+    }
+    if (message) stage.closest('.option').querySelector('.feedback').textContent = message;
+  });
+});
+document.querySelectorAll('.choose').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('.choose').forEach(item => { item.setAttribute('aria-pressed',String(item === button)); item.textContent = `${item === button ? 'Selected' : 'Choose'} ${item.dataset.choice}`; });
+  document.querySelector('#selection').textContent = `Option ${button.dataset.choice} selected in this preview. Tell me “${button.dataset.choice}” in the conversation to confirm; this page does not send your selection.`;
+}));
+new ResizeObserver(fit).observe(document.querySelector('.stage'));
+render();
+</script>
+</body>
+</html>

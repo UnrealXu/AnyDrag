@@ -1,51 +1,169 @@
 import Cocoa
 import ApplicationServices
+import os
 
-// MARK: - Modifier Key Model
+extension Notification.Name {
+    /// Undocumented but stable distributed notification posted by macOS when
+    /// any app's Accessibility trust changes. Verified usage in many open-source
+    /// apps (Loop, MonitorControl, Shifty, GitHub Copilot for Xcode, …).
+    static let anyDragAXTrustChanged = Notification.Name("com.apple.accessibility.api")
+}
 
-enum ModifierKey: String, CaseIterable {
-    case option = "option"
-    case command = "command"
-    case control = "control"
-    case fn = "fn"
-    case optionCommand = "option+command"
+// MARK: - Modifier Combination Model
 
+/// User-selectable combination of modifier keys. Any non-empty subset of
+/// command/shift/option/control/fn is allowed, plus `hyper` — a *virtual*
+/// modifier meaning "CapsLock held, as signalled by HyperCapslock". Unlike the
+/// others, `hyper` is NOT a `CGEventFlag` (it carries no flag on the mouse
+/// event); the engine satisfies it from `HyperCapslockCapsHoldSource` instead.
+struct ModifierCombination: OptionSet, Equatable, Hashable {
+    let rawValue: UInt
+    init(rawValue: UInt) { self.rawValue = rawValue }
+
+    static let command = ModifierCombination(rawValue: 1 << 0)
+    static let shift   = ModifierCombination(rawValue: 1 << 1)
+    static let option  = ModifierCombination(rawValue: 1 << 2)
+    static let control = ModifierCombination(rawValue: 1 << 3)
+    static let fn      = ModifierCombination(rawValue: 1 << 4)
+    /// Virtual: "hold CapsLock (via HyperCapslock)". No event flag — see above.
+    static let hyper   = ModifierCombination(rawValue: 1 << 5)
+
+    static let fnEventFlag = CGEventFlags.maskSecondaryFn
+
+    /// The real CGEventFlags this combination requires. `hyper` contributes
+    /// nothing here — it is matched out-of-band against the CapsLock source.
     var eventFlags: CGEventFlags {
-        switch self {
-        case .option:         return .maskAlternate
-        case .command:        return .maskCommand
-        case .control:        return .maskControl
-        case .fn:             return CGEventFlags(rawValue: 0x800000)
-        case .optionCommand:  return CGEventFlags(rawValue: CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskCommand.rawValue)
+        var f: CGEventFlags = []
+        if contains(.command) { f.insert(.maskCommand) }
+        if contains(.shift)   { f.insert(.maskShift) }
+        if contains(.option)  { f.insert(.maskAlternate) }
+        if contains(.control) { f.insert(.maskControl) }
+        if contains(.fn)      { f.insert(Self.fnEventFlag) }
+        return f
+    }
+
+    /// Glyph display, e.g. "⌃⌥⇧⌘" or "fn⌘". Order follows Apple HIG (fn ⌃ ⌥ ⇧ ⌘),
+    /// with the virtual Hyper key first.
+    var symbol: String {
+        var s = ""
+        if contains(.hyper)   { s += "⇪" }
+        if contains(.fn)      { s += "fn" }
+        if contains(.control) { s += "⌃" }
+        if contains(.option)  { s += "⌥" }
+        if contains(.shift)   { s += "⇧" }
+        if contains(.command) { s += "⌘" }
+        return s.isEmpty ? "—" : s
+    }
+
+    /// Localized name, e.g. "Control + Option + Command".
+    var displayName: String {
+        var parts: [String] = []
+        if contains(.hyper)   { parts.append(NSLocalizedString("Hyper", comment: "")) }
+        if contains(.fn)      { parts.append(NSLocalizedString("fn", comment: "")) }
+        if contains(.control) { parts.append(NSLocalizedString("Control", comment: "")) }
+        if contains(.option)  { parts.append(NSLocalizedString("Option", comment: "")) }
+        if contains(.shift)   { parts.append(NSLocalizedString("Shift", comment: "")) }
+        if contains(.command) { parts.append(NSLocalizedString("Command", comment: "")) }
+        return parts.isEmpty ? "—" : parts.joined(separator: " + ")
+    }
+
+    /// True when adding Option to the gesture is allowed (so users can combine
+    /// AnyDrag with the macOS "Hold Option while dragging windows to tile" feature).
+    var supportsOptionAugmentation: Bool {
+        !contains(.option)
+    }
+
+    /// Enforce the Hyper-is-exclusive invariant: Hyper never coexists with flag
+    /// modifiers (the engine arms on a CapsLock hold OR a flag combo, never a
+    /// mix). Used to sanitize values loaded from persistence that may have been
+    /// written before the exclusivity rule, or hand-edited. Hyper wins when both
+    /// are present, since selecting it is the deliberate, newer choice.
+    var hyperNormalized: ModifierCombination {
+        contains(.hyper) ? .hyper : self
+    }
+
+    // MARK: - Left-click resize augment
+
+    /// The single keys eligible as the secondary modifier for the left-click
+    /// resize gesture (this key alone + left-drag → resize). Order is the
+    /// preference order used when picking a default.
+    ///
+    /// Option is intentionally excluded: the move gesture already treats
+    /// "base + Option" as a pass-through so macOS native window-tiling can kick
+    /// in (`supportsOptionAugmentation`), and a bare Option-drag is itself a
+    /// system gesture — so resize must not claim Option. Hyper isn't a real
+    /// event flag (it's a CapsLock hold), so it can't be the secondary either.
+    static let augmentCandidates: [ModifierCombination] = [.shift, .control, .command, .fn]
+
+    /// True when this combination is exactly one eligible augment key.
+    var isValidAugment: Bool {
+        Self.augmentCandidates.contains(self)
+    }
+
+    /// First eligible secondary key that isn't identical to `base`. A key may
+    /// overlap a multi-key base because both gestures use exact flag matching.
+    static func defaultAugment(excluding base: ModifierCombination) -> ModifierCombination {
+        augmentCandidates.first { $0.isValidAugment(for: base) } ?? .shift
+    }
+
+    /// True when this is a valid secondary key whose final shortcut is not
+    /// identical to the move shortcut. A single key contained in a multi-key
+    /// base remains valid because both matchers require exact flag equality.
+    func isValidAugment(for base: ModifierCombination) -> Bool {
+        isValidAugment && self != base
+    }
+
+    /// Normalize a persisted/hand-edited augment for the given base, preserving
+    /// contained keys while preventing identical move and resize shortcuts.
+    func sanitizedAugment(base: ModifierCombination) -> ModifierCombination {
+        isValidAugment(for: base) ? self : Self.defaultAugment(excluding: base)
+    }
+
+    /// Migrate the pre-1.3 `ModifierKey` string preference.
+    init?(legacyString: String) {
+        switch legacyString {
+        case "option":         self = .option
+        case "command":        self = .command
+        case "control":        self = .control
+        case "fn":             self = .fn
+        case "option+command": self = [.option, .command]
+        default:               return nil
         }
     }
+}
+
+// MARK: - Middle Action Model
+
+/// What the middle mouse button does. Mutually exclusive — the user picks one.
+enum MiddleAction: String, CaseIterable {
+    case off = "off"
+    case dragWindow = "drag"
+    case tileByDirection = "tile"
 
     var displayName: String {
         switch self {
-        case .option:         return "Option"
-        case .command:        return "Command"
-        case .control:        return "Control"
-        case .fn:             return "fn"
-        case .optionCommand:  return "Option + Command"
+        case .off:              return NSLocalizedString("Off", comment: "")
+        case .dragWindow:       return NSLocalizedString("Drag window", comment: "")
+        case .tileByDirection:  return NSLocalizedString("Tile by direction", comment: "")
         }
     }
+}
 
-    var symbol: String {
-        switch self {
-        case .option:         return "⌥"
-        case .command:        return "⌘"
-        case .control:        return "⌃"
-        case .fn:             return "fn"
-        case .optionCommand:  return "⌥⌘"
-        }
-    }
+// MARK: - Resize Trigger Model
 
-    var supportsOptionAugmentation: Bool {
+/// How the resize-from-anywhere gesture is triggered. Mutually exclusive — the
+/// user picks one (or off). Replaces the old pair of independent booleans
+/// (`resizeEnabled` for right-click, `leftResizeEnabled` for secondary+left).
+enum ResizeTrigger: String, CaseIterable {
+    case off       = "off"
+    case rightClick = "right"   // primary modifier + right-drag
+    case leftClick  = "left"    // secondary modifier + left-drag (no primary)
+
+    var displayName: String {
         switch self {
-        case .option, .optionCommand:
-            return false
-        case .command, .control, .fn:
-            return true
+        case .off:        return NSLocalizedString("Off", comment: "")
+        case .rightClick: return NSLocalizedString("resizeTrigger.right", comment: "")
+        case .leftClick:  return NSLocalizedString("resizeTrigger.left", comment: "")
         }
     }
 }
@@ -56,31 +174,370 @@ enum ModifierKey: String, CaseIterable {
 /// when a configured modifier key is held during a click.
 final class DragEngine {
 
-    private static let secondaryFnMask = CGEventFlags(rawValue: 0x800000)
     private static let relevantModifierMask = CGEventFlags([
-        .maskAlternate, .maskCommand, .maskControl, .maskShift, secondaryFnMask
+        .maskAlternate, .maskCommand, .maskControl, .maskShift, ModifierCombination.fnEventFlag
     ])
 
-    var isEnabled: Bool = true
-    var modifierKey: ModifierKey = .option
+    // Marker carried on synthesized replay events so we ignore them in our own tap.
+    private static let synthesizedEventMarker: Int64 = 0x416E794472616701  // "AnyDrag\x01"
 
-    private var eventTap: CFMachPort?
+    // Squared cursor travel (in points) past which "drag-only trigger mode"
+    // reveals the tile cancel dot. 5 pt is enough to tell an intentional drag
+    // from the jitter of a plain middle-click. Stored squared to skip the sqrt.
+    private static let tileDragRevealThresholdSquared: CGFloat = 25
+    private static let crossScreenTileSettleDelay: TimeInterval = 0.1
+    private static var needsDeferredCrossScreenTileSizing: Bool {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+    }
+
+    private static let log = FileLog("DragEngine")
+
+    var modifiers: ModifierCombination = .option {
+        didSet {
+            // The virtual `.hyper` chip drives the CapsLock source on/off. Set on
+            // the main thread (config apply + chip toggle), same as every other
+            // `modifiers` write.
+            hyperCapslockSource.setEnabled(modifiers.contains(.hyper))
+        }
+    }
+    /// AnyDrag's link to HyperCapslock. Owns the cross-process CapsLock-hold
+    /// listening and the liveness watchdog; consulted via `isHeld` on the tap
+    /// thread. Active only while `.hyper` is selected.
+    let hyperCapslockSource = HyperCapslockCapsHoldSource()
+    var dragEnabled: Bool = true
+    var maximizeEnabled: Bool = true
+    var tilingEnabled: Bool = true
+    /// How the resize-from-anywhere gesture is triggered (right-click,
+    /// modifier+left-click, or off). Single source of truth; the two booleans
+    /// below are derived from it so the gesture logic keeps reading the same
+    /// flags it always has.
+    var resizeTrigger: ResizeTrigger = .rightClick
+    /// True when resize is on the modifier+right-drag path. Drives
+    /// `handleRightMouseDown` (suppress-and-defer vs. open the TilingPanel).
+    var resizeEnabled: Bool { resizeTrigger == .rightClick }
+    /// True when resize is on the secondary-modifier + left-drag path. Drives
+    /// `matchesLeftResizeModifier`. Lets users whose right mouse button is bound
+    /// elsewhere resize with the left button instead.
+    var leftResizeEnabled: Bool { resizeTrigger == .leftClick }
+    /// The single secondary key that triggers a left-click resize on its own
+    /// (e.g. `.shift` → Shift + left-drag resizes; the primary modifier is not
+    /// required). It may be contained in a multi-key move modifier, but may not
+    /// be identical to it — see `sanitizedAugment(base:)`.
+    var leftResizeModifier: ModifierCombination = .shift
+    /// When true (default) and ≥2 displays are connected, the bento panel
+    /// renders all displays at their real arrangement so the user can pick
+    /// any display × any zone in a single gesture. When false, or with one
+    /// display, falls back to the original single-display bento.
+    var multiDisplayBentoEnabled: Bool = true
+    /// Bento overlay appearance. The frameless glass blends into neighbouring
+    /// windows by design; these let the user push it forward again — a system
+    /// hairline, a different glass material, and/or a thin colour wash.
+    var bentoBorderEnabled: Bool = false
+    /// Show the close / minimize / full-screen strip under the bento's
+    /// current card. On by default.
+    var bentoWindowActionsEnabled: Bool = true
+    var bentoMaterial: BentoMaterial = .popover
+    var bentoTint: BentoTint = .accent
+    /// "Drag-only trigger mode" for the tile-by-direction middle gesture. When
+    /// true, the cancel dot / bento panel is withheld on middle-button-down and
+    /// revealed only once the cursor moves past a small threshold — so a static
+    /// middle-click never flashes the panel and replays as a normal click. When
+    /// false (default) the panel appears immediately on press, as before.
+    var tileByDirectionDragOnly: Bool = false
+    /// When true (default), dragging the shared seam between two AnyDrag-tiled
+    /// complementary windows resizes both at once. Turning it off at runtime
+    /// immediately dissolves any active divider group and forgets all tracked
+    /// tilings, so the divider and its cursor disappear at once.
+    var linkedResizeEnabled: Bool = true {
+        didSet {
+            // Only a real on→off transition tears down. Always set on the main
+            // thread (the Settings toggle and config apply both run there),
+            // matching `disableAndReset`'s main-thread precondition.
+            guard oldValue, !linkedResizeEnabled else { return }
+            linkedResizeController.disableAndReset()
+        }
+    }
+    /// When true (default), the tile-by-direction "bento" overlay is kept fully
+    /// on-screen near a screen edge and the real cursor glides to its center;
+    /// when false, the overlay centers on the cursor with no edge clamping and
+    /// no cursor warp. Threaded to `tileCancelDot` before each show.
+    var overlayEdgeSafeEnabled: Bool = true
+    /// Size of a centered window, as a percent of the screen's visible frame
+    /// (50…85 in steps of 5 — see `Preferences.centeredPercentRange`). ONE
+    /// source shared by every centered path: the middle-drag-down commit, that
+    /// gesture's live preview overlay, and the tiling panel's Center button.
+    var centeredSizePercent: Int = Preferences.defaultCenteredPercent
+    /// `centeredSizePercent` as the fraction the geometry math wants. Derived in
+    /// exactly one place so no call site rolls its own division.
+    var centeredFraction: CGFloat { CGFloat(centeredSizePercent) / 100 }
+    var middleAction: MiddleAction = .off {
+        didSet {
+            // If the user changes the middle-button action mid-gesture, abort
+            // the in-flight tile so a stale gesture can't apply on release.
+            guard oldValue != middleAction else { return }
+            let hasInFlight = cbState.withLock { $0.tileTarget != nil }
+            guard hasInFlight else { return }
+            abortTileGesture()
+        }
+    }
+
+    var titleBarYOffset: CGFloat {
+        get { strategy.titleBarYOffset }
+        set { strategy.titleBarYOffset = newValue }
+    }
+
+    var resizeCornerInset: CGFloat {
+        get { resizeStrategy.cornerInset }
+        set { resizeStrategy.cornerInset = newValue }
+    }
+
+    var cornerBracketEnabled: Bool {
+        get { resizeStrategy.cornerBracketEnabled }
+        set { resizeStrategy.cornerBracketEnabled = newValue }
+    }
+
+    /// Shared "show synthesized-click dot" toggle. Drives the title-bar
+    /// move strategy AND the resize strategy — one setting, two markers.
+    var showDebugDot: Bool {
+        get { strategy.showDebugDot }
+        set {
+            strategy.showDebugDot = newValue
+            resizeStrategy.showDebugDot = newValue
+        }
+    }
+
     private var runLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
 
+    /// Retained `self` pointer handed to the C event-tap callback. Created
+    /// once on first `start()` and never released until `deinit` — releasing
+    /// while a callback might still be on the stack would UAF (the callback
+    /// uses `takeUnretainedValue`). Cost: a one-time self-cycle while the
+    /// engine is alive. Safe because AnyDrag uses one DragEngine for the
+    /// process lifetime (held by `AppDelegate.dragEngine`); `deinit` is
+    /// effectively unreachable, which we accept rather than introducing
+    /// teardown coordination across threads.
+    private var tapUserInfo: UnsafeMutableRawPointer?
+
+    /// State shared between the tap-callback thread and main thread,
+    /// guarded by one unfair lock to avoid Swift data races. The fast-path
+    /// `handleEvent` reads `trusted` + bumps `eventCounter` per event;
+    /// `tap` and `tapRunLoop` are written by start/stop on main and the
+    /// new tap thread (only at startup), and read on main in `stop()`.
+    /// Tile-by-direction gesture fields are written by the tap thread on
+    /// every middle-button event AND by main from `abortTileGesture()`
+    /// inside `stop()`, so they live here too.
+    ///
+    /// The callback **never** reads `tap` from this state — that would
+    /// open a race where an in-flight callback from an old tap generation
+    /// could read a freshly-installed new tap and disable it. Instead,
+    /// any tap manipulation the callback wants to do is dispatched to
+    /// main, which reads the current `tap` under the lock.
+    private struct CallbackState {
+        var trusted: Bool = true
+        var tap: CFMachPort? = nil
+        var tapRunLoop: CFRunLoop? = nil
+        var eventCounter: Int = 0
+        // Middle-button tile-by-direction gesture state. Mutated by both
+        // the tap callback and main (from abortTileGesture / stop).
+        var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
+        var tileZone: TileZone? = nil
+        /// Which screen the resolved tile should land on. With multi-display
+        /// mode, the cursor's panel-local position picks both the zone AND the
+        /// target display — it isn't always the cursor's current display. nil
+        /// when no zone is active.
+        var tileTargetScreen: NSScreen? = nil
+        /// Set instead of `tileZone` while the cursor is on the bento's action
+        /// strip (close / minimize / full screen).
+        var tileAction: WindowAction? = nil
+        var middleClickOrigin: CGPoint? = nil
+        /// Issue #53: where and with which flags the current left-button
+        /// press landed, kept only while that press might still turn out to
+        /// be a plain ⌘-click the app should receive. Set at mouseDown by
+        /// `armPlainCommandClickReplay`, consumed (and always cleared) at the
+        /// matching mouseUp whether or not the press turned into a drag.
+        var plainClickOrigin: CGPoint? = nil
+        var plainClickFlags: CGEventFlags? = nil
+        // Sticky: set true the first drag event that resolves to a non-nil
+        // zone. Releasing in the deadzone with this true means the user
+        // actively chose a direction and then changed their mind — cancel
+        // cleanly without replaying the middle-click. False means the
+        // gesture never left the center cell (likely just a tap), so the
+        // middle-click is replayed so apps see it (browser tab close, etc.).
+        var tileSawDirection: Bool = false
+        // Whether the cancel dot / bento panel is currently on screen for this
+        // gesture. In "drag-only trigger mode" it starts false on middle-down
+        // and flips true once the cursor passes the reveal threshold; otherwise
+        // it's true from the start (panel shown immediately on press).
+        var tileDotShown: Bool = false
+        // Right-button gesture pending state: set at modifier+rightMouseDown,
+        // consumed at rightMouseUp. If no drag happened, we open TilingPanel
+        // with this target (preserving the old right-click-to-tile behavior);
+        // if a drag happened, the resize strategy committed the new geometry
+        // and we just clear the pending info.
+        var rightTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
+        var rightOrigin: CGPoint? = nil
+        // Throttle anchor for diagnostic "miss" logs (modifier mismatch,
+        // no-window-under-cursor). Shared bucket; 1s window keeps the log
+        // readable when a user clicks rapidly.
+        var lastDiagMissAt: CFAbsoluteTime = 0
+    }
+    private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
+
+    /// User-excluded apps ("blacklist"). The authoritative list (bundle
+    /// identifiers) is held on the main thread; the derived set of the
+    /// *currently-running pids* for those apps is what the tap thread checks, so
+    /// the hot path is a pure `Set<pid_t>` membership test with no Launch
+    /// Services call. The pid set is recomputed on main whenever the list
+    /// changes or any app launches/terminates. When the window under the cursor
+    /// belongs to an excluded pid, `windowUnderCursor` returns nil so every
+    /// gesture (move / resize / tile / middle) goes passive and the event passes
+    /// through untouched. The pid lock is never nested with `cbState`.
+    private var blacklistedAppBundleIDs: Set<String> = []
+    private let blacklistedPids = OSAllocatedUnfairLock<Set<pid_t>>(initialState: [])
+
+    /// Per-app title-bar Y offset overrides. Same two-tier design as the
+    /// blacklist above: the authoritative `bundleID → offset` map is held on the
+    /// main thread; the tap thread reads a derived `pid → offset` map (a pure
+    /// dictionary lookup, no Launch Services). A pid that isn't present falls
+    /// back to the global `strategy.titleBarYOffset`. Recomputed on main
+    /// whenever the list changes or any app launches/terminates — sharing the
+    /// same NSWorkspace observers as the blacklist.
+    private var perAppTitleBarYOffsetsByBundleID: [String: CGFloat] = [:]
+    private let perAppTitleBarYOffsetPids = OSAllocatedUnfairLock<[pid_t: CGFloat]>(initialState: [:])
+
+    /// Tokens for the NSWorkspace launch/terminate observers that keep the pid
+    /// set in sync with app lifecycle. Removed in deinit.
+    private var runningAppsObservers: [NSObjectProtocol] = []
+
+    private var trustNotificationObserver: NSObjectProtocol?
+    /// Staircase of delayed probes scheduled after each
+    /// `com.apple.accessibility.api` notification. We probe at multiple
+    /// offsets because `AXIsProcessTrusted()` — the only API that detects
+    /// a *revoke* for non-sandboxed processes — has variable TCC settle
+    /// latency. A single 250ms probe used to miss slow revokes, leaving
+    /// our unauthorized `.defaultTap` at the head of the event chain and
+    /// freezing system-wide clicks.
+    private var trustRestoreDebounceTasks: [DispatchWorkItem] = []
+    private var backstopTimer: Timer?
+    /// `AXIsProcessTrusted()` can stay pinned to true for the lifetime of a
+    /// process after a live revoke. Once WindowServer disables our tap by user
+    /// input, never recreate it in this process; relaunch is the only reliable
+    /// way to obtain a fresh TCC decision.
+    private var trustRevokedUntilRelaunch = false
+
+    /// Frequency discriminator for `tapDisabledBy*` events. `AXIsProcessTrusted()`
+    /// can stay stale-true after a live revoke, so it can't tell a benign
+    /// `.tapDisabledByTimeout` (our `.defaultTap` callback overran the system
+    /// tap timeout under load — Mission Control, display sleep/wake, heavy
+    /// WindowServer contention) from a real revoke. Frequency can: after a
+    /// re-enable, a genuine revoke re-disables the tap immediately, while a
+    /// one-off timeout doesn't. Count disable events inside a short window —
+    /// below the threshold, re-enable and carry on; at the threshold, treat it
+    /// as a revoke and tear down. Main-thread only (the callback dispatches
+    /// the whole decision to main), so no lock needed.
+    private var tapDisableWindowStart: Date?
+    private var tapDisableCount = 0
+    private static let tapDisableRevokeThreshold = 3
+    private static let tapDisableWindow: TimeInterval = 2.0
+
+    /// Wall-clock anchor for the backstop's events-per-second log. Only
+    /// touched on main, so no lock needed.
+    private var eventCounterStart: Date = Date()
+
     private let strategy = TitleBarDragStrategy()
-    private var savedFrames: [CGWindowID: CGRect] = [:]
+    private let resizeStrategy = ResizeStrategy()
+
+    /// Repeats the strategies' modifier scrub at the tail of the tap chain, so a
+    /// downstream mouse utility can't re-assert the flags we just cleared. Only
+    /// touched from the event-tap thread — see `TrailingFlagScrubber`.
+    private let flagScrubber = TrailingFlagScrubber()
+    /// Frames from before AnyDrag first moved a window, keyed by window id — the
+    /// source for both Restore and modifier+double-click.
+    ///
+    /// The owning pid is stored alongside the frame so a stale record is
+    /// detectable. Records are only dropped by a restore, so one left behind by
+    /// a window that has since closed can outlive it, and a window id is only
+    /// unique while the window exists.
+    private var savedFrames: [CGWindowID: RememberedFrame] = [:]
+
+    struct RememberedFrame {
+        let pid: pid_t
+        let frame: CGRect
+    }
+
     private var tilingPanel: TilingPanel?
+    private lazy var tileOverlay = TileOverlay()
+    private lazy var tileCancelDot = TileCancelDot()
+    private lazy var linkedResizeController = LinkedWindowResizeController()
+
+    // Middle-button tile state and click origin live in `cbState` (see
+    // `CallbackState` above) so they're race-free under the lock.
 
     // MARK: - Lifecycle
 
-    func start() {
-        guard eventTap == nil else { return }
+    init() {
+        installTrustObserver()
+        installRunningAppsObserver()
+        // Hyper (CapsLock) carries no CGEvent flag, so releasing it never reaches
+        // `handleFlagsChanged` in the tap. Close the tiling panel when the hold
+        // ends instead — the Hyper equivalent of releasing the primary modifier
+        // (issue #29). Runs on main; `dismiss()` is a no-op when nothing is shown.
+        hyperCapslockSource.onHoldEnded = { [weak self] in
+            self?.tilingPanel?.dismiss()
+        }
+    }
 
-        let eventMask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue) |
-                                     (1 << CGEventType.leftMouseDragged.rawValue) |
-                                     (1 << CGEventType.leftMouseUp.rawValue) |
-                                     (1 << CGEventType.rightMouseDown.rawValue)
+    deinit {
+        removeTrustObserver()
+        removeRunningAppsObserver()
+        if let userInfo = tapUserInfo {
+            // Balance the `Unmanaged.passRetained(self)` from the first
+            // `start()`. Safe at deinit: by the time we get here, no
+            // callback can be running (deinit means refcount hit zero,
+            // which couldn't have happened while the tap held a retain).
+            Unmanaged<DragEngine>.fromOpaque(userInfo).release()
+        }
+    }
+
+    func start() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        Self.log.info("start(): entering")
+
+        let alreadyRunning = cbState.withLock { $0.tap != nil }
+        guard !alreadyRunning else {
+            Self.log.info("start(): already running, no-op")
+            return
+        }
+        // Don't pre-check via `AXIsProcessTrusted()` — its TCC cache lags
+        // System-Settings toggles by ~hundreds of ms (forum thread 727984),
+        // which produced an "inverted" trust state in earlier builds.
+        // Just attempt `CGEvent.tapCreate` and treat its result as the
+        // ground truth; we update the cache from the actual outcome.
+
+        // Build the mask via a typed reduce — the bare `|` chain of 9
+        // `1 << X.rawValue` terms tripped Swift 6's type-check budget on the
+        // GH Actions runner (Xcode 17 / Swift 6.1) even though Xcode 15
+        // locally accepted it. Each `flag` step is independently typed,
+        // which keeps the inference linear.
+        let maskedTypes: [CGEventType] = [
+            .leftMouseDown, .leftMouseDragged, .leftMouseUp,
+            .rightMouseDown, .rightMouseDragged, .rightMouseUp,
+            .otherMouseDown, .otherMouseDragged, .otherMouseUp,
+            // Modifier transitions — used only to auto-dismiss the TilingPanel
+            // when the primary modifier is released (issue #29). Never consumed.
+            .flagsChanged,
+        ]
+        let eventMask: CGEventMask = maskedTypes.reduce(into: CGEventMask(0)) { mask, type in
+            mask |= CGEventMask(1) << type.rawValue
+        }
+
+        // Retain `self` exactly once across the engine's lifetime. Reused on
+        // re-start so we never accumulate unbalanced retains.
+        if tapUserInfo == nil {
+            tapUserInfo = Unmanaged.passRetained(self).toOpaque()
+        }
+        guard let userInfo = tapUserInfo else { return }
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -88,50 +545,481 @@ final class DragEngine {
             options: .defaultTap,
             eventsOfInterest: eventMask,
             callback: eventTapCallback,
-            userInfo: Unmanaged.passRetained(self).toOpaque()
+            userInfo: userInfo
         ) else {
-            NSLog("AnyDrag: Failed to create event tap. Check Accessibility permissions.")
+            Self.log.warn("start(): tapCreate failed — AX not authorized")
+            // tapCreate is the source of truth; sync the cache to match
+            // so the fast path and UI both see the actual state.
+            cbState.withLock { $0.trusted = false }
             return
         }
 
-        eventTap = tap
+        // Tap created — we ARE authorized. Lock in the truth.
+        cbState.withLock { state in
+            state.tap = tap
+            state.trusted = true
+        }
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
 
-        // Run the event tap on a dedicated high-priority thread
-        let thread = Thread { [weak self] in
-            guard let source = self?.runLoopSource else { return }
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+        // Capture the tap thread's run loop so `stop()` can wake it.
+        // `source` is captured by value (closure local) so the tap thread
+        // never reads `self.runLoopSource` — keeping that field main-only.
+        // The semaphore ensures `start()` returns only after the tap
+        // thread has recorded its run loop into `cbState.tapRunLoop`.
+        let runLoopReady = DispatchSemaphore(value: 0)
+        let thread = Thread { [source, weak self] in
+            let runLoop = CFRunLoopGetCurrent()
+            self?.cbState.withLock { $0.tapRunLoop = runLoop }
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            runLoopReady.signal()
             CFRunLoopRun()
+            // Returns after CFRunLoopStop is called from stop().
+            Self.log.info("tap thread run loop exited")
         }
         thread.qualityOfService = .userInteractive
         thread.name = "com.anydrag.eventtap"
         thread.start()
         tapThread = thread
+
+        // Bounded wait so a wedged Thread.start can't hang main forever.
+        // 1 second is generous — the new thread does just CFRunLoopGetCurrent
+        // before signaling; if it can't manage that, the system is in a
+        // worse state than this lock can fix. On timeout we leak the
+        // partially-started thread (it'll be reaped at process exit) but
+        // do not block main.
+        let waitResult = runLoopReady.wait(timeout: .now() + 1.0)
+        guard waitResult == .success else {
+            Self.log.error("start(): tap thread did not signal readiness within 1s — aborting")
+            // Best-effort rollback so a half-started state can't trip stop().
+            cbState.withLock { state in
+                if let t = state.tap {
+                    CGEvent.tapEnable(tap: t, enable: false)
+                    CFMachPortInvalidate(t)
+                }
+                state.tap = nil
+                state.tapRunLoop = nil
+            }
+            if let source = runLoopSource { CFRunLoopSourceInvalidate(source) }
+            runLoopSource = nil
+            tapThread = nil
+            return
+        }
+
+        // Lift the bar a previous `stop()` put up (no-op on a first start).
+        flagScrubber.resume()
+
+        cbState.withLock { $0.eventCounter = 0 }
+        eventCounterStart = Date()
+        tapDisableWindowStart = nil
+        tapDisableCount = 0
+        startBackstopTimer()
+
+        Self.log.info("start(): tap created OK")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) linkedResize=\(self.linkedResizeEnabled) overlayEdgeSafe=\(self.overlayEdgeSafeEnabled) yOffset=\(self.strategy.titleBarYOffset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
+        dispatchPrecondition(condition: .onQueue(.main))
+        Self.log.info("stop(): tearing down event tap")
+
+        // Drop the trailing scrubber first, and bar it from making another: its
+        // run loop source lives on the tap thread we're about to stop, and a live
+        // tap nobody services would stall input until the system times it out.
+        // The bar matters because a gesture may be building one right now on that
+        // thread — `resume()` in `start()` lifts it.
+        flagScrubber.shutdown()
+
+        // Atomically pull the tap and run loop out of the shared state.
+        // After this exits the lock, the cbState reflects "no tap running"
+        // — a concurrent fast-path reader sees `tap = nil` and skips. The
+        // captured locals here are then used to actually invalidate things
+        // outside the lock, which is fine because CFMachPort/CFRunLoop
+        // operations are thread-safe per Apple docs.
+        let (tap, runLoop) = cbState.withLock { state -> (CFMachPort?, CFRunLoop?) in
+            let t = state.tap
+            let r = state.tapRunLoop
+            state.tap = nil
+            state.tapRunLoop = nil
+            return (t, r)
         }
-        eventTap = nil
+        if let tap = tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let source = runLoopSource {
+            CFRunLoopSourceInvalidate(source)
+        }
+        if let runLoop = runLoop {
+            CFRunLoopStop(runLoop)
+            CFRunLoopWakeUp(runLoop)
+        }
         runLoopSource = nil
+        tapThread = nil
+        // tapUserInfo intentionally NOT released — kept for next start().
+        // Released only in deinit (see init notes).
+
         strategy.reset()
+        resizeStrategy.reset()
+        abortTileGesture()
+        cbState.withLock { state in
+            state.rightTarget = nil
+            state.rightOrigin = nil
+            state.plainClickOrigin = nil
+            state.plainClickFlags = nil
+        }
+
+        // Backstop deliberately kept alive across stop(). `AXIsProcessTrusted`
+        // has TCC settle latency that can exceed the 2.5 s notification
+        // staircase. Without a running backstop, a false-revoke from
+        // `tapDisabledBy*` (or a legitimate re-grant later in the
+        // session) would never be observed automatically — the engine
+        // would stay stopped until the next distributed AX notification
+        // or app restart. Five-second ticks reading `AXIsProcessTrusted`
+        // cost essentially nothing and recover the engine without user
+        // intervention.
+        trustRestoreDebounceTasks.forEach { $0.cancel() }
+        trustRestoreDebounceTasks.removeAll()
+
+        Self.log.info("stop(): teardown complete (backstop left running)")
+    }
+
+    // MARK: - AX Trust Observation
+
+    private func installTrustObserver() {
+        let observer = DistributedNotificationCenter.default().addObserver(
+            forName: .anyDragAXTrustChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTrustNotification()
+        }
+        trustNotificationObserver = observer
+        Self.log.info("AX trust distributed notification observer installed")
+    }
+
+    private func removeTrustObserver() {
+        if let observer = trustNotificationObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+            trustNotificationObserver = nil
+        }
+    }
+
+    // MARK: - Running-apps observation (blacklist pid tracking)
+
+    /// Keep the excluded-app pid set current as apps come and go, so the tap
+    /// thread never has to resolve a pid → bundle id itself. Both notifications
+    /// are delivered on the main queue.
+    private func installRunningAppsObserver() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [NSNotification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+        ]
+        runningAppsObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.recomputeBlacklistedPids()
+                self?.recomputePerAppTitleBarYOffsetPids()
+            }
+        }
+    }
+
+    private func removeRunningAppsObserver() {
+        let center = NSWorkspace.shared.notificationCenter
+        runningAppsObservers.forEach { center.removeObserver($0) }
+        runningAppsObservers.removeAll()
+    }
+
+    private func handleTrustNotification() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        Self.log.info("AX trust notification fired; scheduling check staircase")
+        // The notification is just a "something changed" hint — for ANY
+        // app, not just us. We need to discover whether *our* trust just
+        // flipped. `AXIsProcessTrusted` reads TCC state and lags the
+        // System Settings toggle by a variable amount (hundreds of ms,
+        // sometimes longer on slow machines), so we re-check at a
+        // staircase of delays — 250ms catches fast settles, 2500ms covers
+        // the slow tail. The always-on 5s backstop catches anything past
+        // 2500ms.
+        trustRestoreDebounceTasks.forEach { $0.cancel() }
+        trustRestoreDebounceTasks.removeAll()
+        let delaysMs: [Int] = [250, 1000, 2500]
+        for delay in delaysMs {
+            let task = DispatchWorkItem { [weak self] in
+                self?.recheckTrust(source: "notification+\(delay)ms")
+            }
+            trustRestoreDebounceTasks.append(task)
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: task)
+        }
+    }
+
+    /// Probe the actual AX state and reconcile cache + engine lifecycle.
+    /// Called from the notification handler and the backstop poll.
+    private func recheckTrust(source: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let prior = cbState.withLock { $0.trusted }
+        let trusted = AXIsProcessTrusted()
+        Self.log.info("Trust check [\(source)]: prior=\(prior) → AXIsProcessTrusted=\(trusted)")
+        applyTrustChange(trusted, source: source)
+    }
+
+    /// Update the cached trust state and start/stop the engine accordingly.
+    /// Safe to call repeatedly — no-op when the cached state already matches.
+    private func applyTrustChange(_ trusted: Bool, source: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if trusted && trustRevokedUntilRelaunch {
+            Self.log.warn("Ignoring stale AX trusted=true after live revoke [\(source)]; relaunch required")
+            return
+        }
+        let previous = cbState.withLock { state -> Bool in
+            let p = state.trusted
+            state.trusted = trusted
+            return p
+        }
+        guard previous != trusted else {
+            Self.log.debug("Trust unchanged (\(trusted)) from \(source); ignoring")
+            return
+        }
+        Self.log.warn("AX trust transition: \(previous) → \(trusted) [\(source)]")
+
+        if trusted {
+            start()
+        } else {
+            trustRevokedUntilRelaunch = true
+            stop()
+            PermissionManager.relaunchForAccessibilityAuthorization()
+        }
+    }
+
+    /// Decide on main whether a `tapDisabledBy*` event was a benign timeout
+    /// (re-enable the tap and carry on) or a real AX revoke (tear down and
+    /// relaunch). The callback already disabled the tap synchronously; this
+    /// only ever re-enables when we're still below the revoke threshold —
+    /// see `tapDisableWindowStart` for the frequency rationale.
+    private func handleTapDisabledOnMain() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        // A live revoke was already latched (distributed notification,
+        // backstop, or an earlier threshold trip) — never re-enable; the
+        // teardown/relaunch is underway.
+        guard !trustRevokedUntilRelaunch else {
+            Self.log.warn("tap-disabled after revoke latch — leaving tap disabled")
+            return
+        }
+
+        let now = Date()
+        if let start = tapDisableWindowStart,
+           now.timeIntervalSince(start) <= Self.tapDisableWindow {
+            tapDisableCount += 1
+        } else {
+            // Window elapsed (or first event) — start a fresh one.
+            tapDisableWindowStart = now
+            tapDisableCount = 1
+        }
+
+        if tapDisableCount >= Self.tapDisableRevokeThreshold {
+            Self.log.warn("tap disabled \(self.tapDisableCount)x within \(Self.tapDisableWindow)s — treating as AX revoke")
+            tapDisableWindowStart = nil
+            tapDisableCount = 0
+            applyTrustChange(false, source: "tap-disabled")
+            return
+        }
+
+        // Benign: an isolated timeout under load. Re-enable and continue —
+        // if this was actually a revoke, WindowServer re-disables the tap
+        // immediately and the threshold above trips within the window.
+        let reEnabled = cbState.withLock { state -> Bool in
+            guard let tap = state.tap else { return false }
+            CGEvent.tapEnable(tap: tap, enable: true)
+            return true
+        }
+        if reEnabled {
+            Self.log.info("Re-enabled tap after benign disable (\(self.tapDisableCount)/\(Self.tapDisableRevokeThreshold) within \(Self.tapDisableWindow)s)")
+        } else {
+            Self.log.warn("tap-disabled decision found no tap to re-enable (engine stopped?)")
+        }
+    }
+
+    // MARK: - Backstop poll
+
+    /// Periodic trust poll, (re)created on every successful `start()` and
+    /// **deliberately kept alive across `stop()` calls** for the engine's
+    /// lifetime. Two responsibilities:
+    ///
+    /// 1. While trusted: catch missed `com.apple.accessibility.api`
+    ///    distributed notifications (the name is undocumented and not
+    ///    guaranteed reliable) and dump event-rate stats for diagnostics.
+    /// 2. While untrusted (post-revoke): catch a re-grant — or a false
+    ///    positive from the `tapDisabledBy*` recovery path — that the
+    ///    notification staircase missed. Without this, the engine would
+    ///    stay wedged until the next AX notification or app restart.
+    private func startBackstopTimer() {
+        backstopTimer?.invalidate()
+        backstopTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.backstopTick()
+        }
+    }
+
+    /// Belt-and-suspenders trust check at each AX-call entry point. Closes
+    /// the brief window where the cached `cbState.trusted` may still
+    /// report true while an `com.apple.accessibility.api` notification is
+    /// in flight. Cheap to call (single TCC query, microseconds) — these
+    /// sites are user-gesture-driven, not in any hot loop. If trust is
+    /// gone, schedules a full teardown.
+    private func axGuardOrAbort(_ site: String) -> Bool {
+        if AXIsProcessTrusted() { return true }
+        Self.log.warn("AX call site '\(site)' aborted — AXIsProcessTrusted=false")
+        DispatchQueue.main.async { [weak self] in
+            self?.applyTrustChange(false, source: "axGuard:\(site)")
+        }
+        return false
+    }
+
+    private func backstopTick() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let snapshot = cbState.withLock { state -> (Bool, Int) in
+            let s = (state.trusted, state.eventCounter)
+            state.eventCounter = 0
+            return s
+        }
+        let cached = snapshot.0
+        let count = snapshot.1
+        let actual = AXIsProcessTrusted()
+        let elapsed = Date().timeIntervalSince(eventCounterStart)
+        eventCounterStart = Date()
+        let perSec = elapsed > 0 ? Double(count) / elapsed : 0
+        Self.log.debug(String(
+            format: "Backstop: AX cache=%@, actual=%@, events=%d in %.1fs (%.1f/s)",
+            cached ? "true" : "false",
+            actual ? "true" : "false",
+            count, elapsed, perSec
+        ))
+
+        if actual != cached {
+            Self.log.warn("Backstop detected drift cache=\(cached) vs actual=\(actual) — applying")
+            applyTrustChange(actual, source: "backstop")
+        }
+    }
+
+    /// Discard any in-flight tile-by-direction gesture and tear down its
+    /// overlays. Safe to call from any thread — tile fields are guarded
+    /// by `cbState`, and the overlay teardown is dispatched to main.
+    private func abortTileGesture() {
+        cbState.withLock { state in
+            state.tileTarget = nil
+            state.tileZone = nil
+            state.tileTargetScreen = nil
+            state.tileAction = nil
+            state.middleClickOrigin = nil
+            state.tileSawDirection = false
+            state.tileDotShown = false
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.tileOverlay.hide()
+            self?.tileCancelDot.hide()
+        }
+    }
+
+    // MARK: - Trailing flag scrub
+
+    /// Arm the tail-of-chain scrubber for a gesture that is about to start.
+    ///
+    /// Only the flags actually held on the triggering event are scrubbed: with
+    /// no conflicting modifier down there is nothing for a downstream tool to
+    /// re-assert, and `TrailingFlagScrubber` then skips creating a tap at all —
+    /// so users without such a tool pay nothing.
+    private func beginFlagScrub(candidates: CGEventFlags, heldOn event: CGEvent) {
+        flagScrubber.begin(stripping: candidates.intersection(event.flags))
+    }
+
+    /// Retire the trailing scrubber for a gesture that just ended.
+    ///
+    /// A release the strategy suppressed (no-drag middle click, no-drag
+    /// right-click resize) never reaches the tail of the chain, so there is
+    /// nothing left to scrub and the tap goes now. Otherwise we wait for exactly
+    /// that event — `event.type` is read after the strategy ran, so it reflects
+    /// any rewrite (a middle-button drag ends as a `leftMouseUp`).
+    private func endFlagScrub(release: Unmanaged<CGEvent>?, event: CGEvent) {
+        if release == nil {
+            flagScrubber.end()
+        } else {
+            flagScrubber.finish(terminator: event.type)
+        }
     }
 
     // MARK: - Event Handling
 
     fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Re-enable tap if the system disabled it (happens if callback was slow)
-        if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
-            if let tap = eventTap {
-                CGEvent.tapEnable(tap: tap, enable: true)
-            }
-            return Unmanaged.passRetained(event)
+        // Snapshot trust + bump the per-event counter under one lock. We
+        // do NOT read `state.tap` here — see the CallbackState comment for
+        // why (rapid-restart generation race). Any tap manipulation is
+        // dispatched to main, which holds the lock when reading tap.
+        let trusted = cbState.withLock { state -> Bool in
+            state.eventCounter &+= 1
+            return state.trusted
         }
 
-        guard isEnabled else {
-            return Unmanaged.passRetained(event)
+        // Fast path: AX trust was revoked. Just pass the event through
+        // untouched; main is on the way to `stop()` (or the backstop will
+        // catch us). The system can route events around an unauthorized
+        // tap as long as we don't suppress or modify them.
+        //
+        // Note: this branch silently skips `tapDisabledBy*` handling
+        // when cache=false. That's intentional — `stop()` itself will
+        // call `CFMachPortInvalidate` and `abortTileGesture()`, so no
+        // cleanup is lost.
+        if !trusted {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // `tapDisabledByTimeout` (-2) fires for two very different reasons:
+        // (a) benign — our `.defaultTap` callback overran the system tap
+        // timeout under load (Mission Control, display sleep/wake, heavy
+        // WindowServer contention); (b) a live AX revoke, which macOS reports
+        // as timeout rather than consistently as `tapDisabledByUserInput`
+        // (-1) — and TCC can keep reporting stale `true` for this process, so
+        // `AXIsProcessTrusted()` can't tell the two apart. Fail open
+        // synchronously (never leave a possibly-unauthorized tap enabled
+        // between here and main), then let main discriminate by frequency:
+        // a genuine revoke keeps re-disabling the tap after every re-enable,
+        // a one-off timeout doesn't.
+        if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
+            Self.log.warn("tap-disabled event \(type) — disabling immediately, deciding on main")
+            cbState.withLock { state in
+                if let tap = state.tap {
+                    CGEvent.tapEnable(tap: tap, enable: false)
+                }
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.handleTapDisabledOnMain()
+            }
+            // The tap missed events while disabled — any in-flight tile
+            // gesture is now stranded. Drop it so we don't apply a stale
+            // tile on the next mouse-up.
+            abortTileGesture()
+            // Same for the trailing scrubber: its gesture can no longer deliver
+            // a mouse-up through us, so nothing would ever retire it.
+            flagScrubber.end()
+            // Same reasoning for the right-button resize gesture: a missed
+            // rightUp would leave `resizeStrategy.isActive` stuck true,
+            // intercepting the next right-click. Drop it so the next gesture
+            // starts clean.
+            if resizeStrategy.isActive {
+                resizeStrategy.reset()
+                cbState.withLock { state in
+                    state.rightTarget = nil
+                    state.rightOrigin = nil
+                }
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Shared dividers use the event tap directly rather than relying on a
+        // transparent NSPanel to win cross-process hit testing. Plain left
+        // down/drag/up events inside the current divider are consumed here.
+        if linkedResizeEnabled,
+           event.getIntegerValueField(.eventSourceUserData) != Self.synthesizedEventMarker,
+           linkedResizeController.handleMouseEvent(type: type, location: event.location) {
+            return nil
         }
 
         switch type {
@@ -143,53 +1031,208 @@ final class DragEngine {
             return handleMouseUp(event: event)
         case .rightMouseDown:
             return handleRightMouseDown(event: event)
+        case .rightMouseDragged:
+            return handleRightMouseDragged(event: event)
+        case .rightMouseUp:
+            return handleRightMouseUp(event: event)
+        case .otherMouseDown:
+            return handleOtherMouseDown(event: event)
+        case .otherMouseDragged:
+            return handleOtherMouseDragged(event: event)
+        case .otherMouseUp:
+            return handleOtherMouseUp(event: event)
+        case .flagsChanged:
+            return handleFlagsChanged(event: event)
         default:
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
+    }
+
+    // MARK: - Modifier changes
+
+    /// Auto-dismiss the TilingPanel the moment the primary modifier is released.
+    /// The panel is opened by primary-modifier + right-click; once it's up the
+    /// user tends to let go of the modifier, and a lingering menu is annoying —
+    /// so releasing the primary closes it (issue #29). We never consume the
+    /// event, and the panel's other dismiss paths (pick a tile, click outside,
+    /// Esc) are unaffected. The `dismiss()` touches UI, so hop to main.
+    private func handleFlagsChanged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        if tilingPanel?.isVisible == true, !primaryModifierHeld(event.flags) {
+            DispatchQueue.main.async { [weak self] in
+                self?.tilingPanel?.dismiss()
+            }
+        }
+        return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Mouse Down
 
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Our own replayed ⌘-click (issue #53) coming back through the tap. It
+        // carries the modifier that would arm us again, so it must be waved
+        // through before any matching below — otherwise we'd swallow the very
+        // click we just put back.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            Self.log.info("plain-click replay: synthesized leftMouseDown passed through at (\(Int(event.location.x)), \(Int(event.location.y)))")
+            return Unmanaged.passUnretained(event)
+        }
+
         // If tiling panel is visible, don't intercept — let clicks reach the panel
         if tilingPanel?.isVisible == true {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Left-click resize: the configured secondary modifier alone + drag →
+        // resize-from-anywhere, the same engine as the right-click resize. The
+        // primary modifier is NOT required here. Checked before the move path
+        // so that with a Hyper (CapsLock) base, holding CapsLock + the secondary
+        // still resizes rather than being swallowed by `matchesConfiguredModifier`,
+        // which matches on a held CapsLock regardless of the other flags.
+        if matchesLeftResizeModifier(event.flags) {
+            return beginLeftResize(event: event)
+        }
+
+        // Not a left-resize press. A leftMouseDown can't be continuing an
+        // in-flight gesture (the button was up), so a resize strategy still
+        // flagged active is stranded from a lost mouse-up — drop it now, before
+        // any pass-through return below, so the next plain `leftMouseDragged`
+        // (which routes straight into `resizeStrategy` when it's active) can't
+        // be hijacked into a resize. The move path re-arms its own strategy.
+        if resizeStrategy.isActive {
+            resizeStrategy.reset()
+            // Retire that gesture's scrubber too. This press may not start an
+            // AnyDrag gesture at all (wrong modifier, no window), and a scrubber
+            // left armed would keep stripping flags from unrelated input until
+            // its watchdog expires.
+            flagScrubber.end()
+            cbState.withLock { state in
+                state.rightTarget = nil
+                state.rightOrigin = nil
+            }
+        }
+
+        // Both left-button features off → nothing to do here.
+        if !dragEnabled && !maximizeEnabled {
+            return Unmanaged.passUnretained(event)
         }
 
         // Check if the configured modifier key is held.
         // We also allow an extra Option key for non-Option shortcuts so
         // macOS native tiling can still kick in during an AnyDrag drag.
         guard matchesConfiguredModifier(event.flags) else {
-            return Unmanaged.passRetained(event)
+            logModifierMiss(flags: event.flags, button: "left")
+            return Unmanaged.passUnretained(event)
         }
 
         let screenPoint = event.location
 
-        // Ignore clicks on the menu bar
-        let menuBarHeight = Double(NSStatusBar.system.thickness)
-        if let mainScreen = NSScreen.screens.first {
-            let mainFrame = mainScreen.frame
-            if screenPoint.x >= mainFrame.origin.x &&
-               screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
-               screenPoint.y < menuBarHeight {
-                return Unmanaged.passRetained(event)
-            }
+        // Pass clicks on the primary screen's menu bar through.
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passUnretained(event)
         }
 
         // Find the topmost normal window (layer 0) under the cursor
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
-            return Unmanaged.passRetained(event)
+            logNoWindowMiss(button: "left", at: screenPoint)
+            return Unmanaged.passUnretained(event)
         }
 
         // Double-click with modifier: toggle maximize/restore
         let clickCount = event.getIntegerValueField(.mouseEventClickState)
         if clickCount == 2 {
+            guard maximizeEnabled else { return Unmanaged.passUnretained(event) }
+            guard axGuardOrAbort("toggleMaximize") else {
+                return Unmanaged.passUnretained(event)
+            }
+            Self.log.info("maximize toggle: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
             toggleMaximize(windowID: windowInfo.windowID, pid: windowInfo.pid, windowFrame: windowInfo.frame)
             return nil
         }
 
+        guard dragEnabled else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard axGuardOrAbort("strategy.handleMouseDown(left)") else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Clear any orphaned middle-gesture state (e.g. from a tap-disabled
+        // gesture where we never received the otherMouseUp).
+        let hadStaleTile = cbState.withLock { state -> Bool in
+            if state.tileTarget != nil { return true }
+            state.middleClickOrigin = nil
+            return false
+        }
+        if hadStaleTile {
+            abortTileGesture()
+        }
+        // A stranded right-resize is already dropped at the top of this method
+        // (the stale-`resizeStrategy` guard), so nothing to clear here.
         strategy.reset()
+        Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+        armPlainCommandClickReplay(for: event, app: windowInfo.app)
+        let offset = effectiveTitleBarYOffset(forPid: windowInfo.pid)
+        let probe = visibleTopInset(pid: windowInfo.pid, windowFrame: windowInfo.frame,
+                                    aimX: event.location.x, cursorY: event.location.y)
+        Self.log.info("top probe: app=\"\(windowInfo.app)\" window=\(Int(windowInfo.frame.width))x\(Int(windowInfo.frame.height)) \(probe.summary)")
+        beginFlagScrub(candidates: TitleBarDragStrategy.modifierFlagsToStrip, heldOn: event)
         return strategy.handleMouseDown(
+            pid: windowInfo.pid,
+            windowID: windowInfo.windowID,
+            windowFrame: windowInfo.frame,
+            event: event,
+            titleBarYOffset: offset,
+            visibleTopInset: probe.inset,
+            activateApp: probe.hasTitleBar,
+            debugCaption: probe.summary
+        )
+    }
+
+    // MARK: - Left-click resize
+
+    /// Start a resize-from-anywhere gesture driven by the left button (the
+    /// modifier+extra-key combo matched in `handleMouseDown`). Mirrors the
+    /// right-click resize setup in `handleRightMouseDown`, minus the
+    /// TilingPanel-on-no-drag fallback — a bare press just gets swallowed.
+    private func beginLeftResize(event: CGEvent) -> Unmanaged<CGEvent>? {
+        let screenPoint = event.location
+
+        // Pass clicks on the primary screen's menu bar through.
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            logNoWindowMiss(button: "left-resize", at: screenPoint)
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard axGuardOrAbort("resizeStrategy.handleMouseDown(left-resize)") else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Drop any stranded move/tile/resize state so a lost up can't leave a
+        // stale gesture armed underneath this one.
+        if strategy.isActive { strategy.reset() }
+        let hadStaleTile = cbState.withLock { state -> Bool in
+            if state.tileTarget != nil { return true }
+            state.middleClickOrigin = nil
+            return false
+        }
+        if hadStaleTile { abortTileGesture() }
+        if resizeStrategy.isActive { resizeStrategy.reset() }
+
+        // Scrub the secondary flag from the synthesized native-resize events so
+        // the Shift / Control / Command held to trigger us can't perturb the
+        // window server's resize tracking (Shift would constrain aspect ratio,
+        // etc.). No primary modifier is held on this path, so there's nothing
+        // else to leave on.
+        resizeStrategy.extraFlagsToStrip = leftResizeModifier.eventFlags
+
+        Self.log.info("left-resize start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) keys=\(self.leftResizeModifier.symbol)")
+        beginFlagScrub(candidates: resizeStrategy.flagsToStrip, heldOn: event)
+        return resizeStrategy.handleMouseDown(
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
             windowFrame: windowInfo.frame,
@@ -200,8 +1243,14 @@ final class DragEngine {
     // MARK: - Mouse Dragged
 
     private func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Left-click resize in flight: feed the resize strategy, which rewrites
+        // the drag into a native corner resize (same path as the right-click
+        // resize, just driven by left-button events).
+        if resizeStrategy.isActive {
+            return resizeStrategy.handleMouseDragged(event: event)
+        }
         guard strategy.isActive else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         return strategy.handleMouseDragged(event: event)
     }
@@ -209,13 +1258,114 @@ final class DragEngine {
     // MARK: - Mouse Up
 
     private func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
-        guard strategy.isActive else {
-            return Unmanaged.passRetained(event)
+        // The up half of our own replayed ⌘-click (issue #53). It is posted
+        // from main a few ms after the real release; if the user has already
+        // pressed again by then, treating it as *that* gesture's release would
+        // end the new drag or resize early. Same wave-through as mouseDown.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            Self.log.info("plain-click replay: synthesized leftMouseUp passed through")
+            return Unmanaged.passUnretained(event)
         }
-        return strategy.handleMouseUp(event: event)
+
+        // Left-click resize in flight: let the resize strategy commit (on drag)
+        // or quietly swallow the press (no drag). Unlike the right-click path
+        // there's no TilingPanel fallback — a bare base+extra click is a no-op.
+        if resizeStrategy.isActive {
+            let result = resizeStrategy.handleMouseUp(event: event)
+            endFlagScrub(release: result, event: event)
+            return result
+        }
+        guard strategy.isActive else {
+            return Unmanaged.passUnretained(event)
+        }
+        let didDrag = strategy.didDrag
+        let modsForAnalytics = self.modifiers
+        var result = strategy.handleMouseUp(event: event)
+
+        // Issue #53: the press never became a drag. If mouseDown armed it as a
+        // plain ⌘-click, swallow this lone up too and hand the app a whole
+        // click instead — the down was already suppressed, so letting only
+        // the up through gives the app half a click, which is nothing.
+        let pending = cbState.withLock { state -> (origin: CGPoint, flags: CGEventFlags)? in
+            defer {
+                state.plainClickOrigin = nil
+                state.plainClickFlags = nil
+            }
+            guard let origin = state.plainClickOrigin, let flags = state.plainClickFlags else { return nil }
+            return (origin, flags)
+        }
+        if !didDrag {
+            if let pending {
+                result = nil
+                Self.log.info("plain-click replay: no drag, swallowing up and replaying ⌘-click at (\(Int(pending.origin.x)), \(Int(pending.origin.y))) flags=0x\(String(pending.flags.rawValue, radix: 16))")
+                // Off the tap thread — posting from inside the callback can
+                // re-enter our own tap synchronously on the same run loop.
+                DispatchQueue.main.async { [weak self] in
+                    self?.replayClick(button: .left, at: pending.origin, flags: pending.flags)
+                }
+            } else if modsForAnalytics == .command {
+                // Only on the ⌘-only setup, where "not armed" is the odd case
+                // (⌘⌥ was held). On any other modifier every no-drag click
+                // lands here and a line per click would just be noise.
+                Self.log.info("plain-click replay: no drag, not armed — lone up passes through (modifier=\(modsForAnalytics.symbol))")
+            }
+        }
+
+        endFlagScrub(release: result, event: event)
+        if didDrag {
+            DispatchQueue.main.async {
+                Analytics.trackDrag(trigger: .modifier, modifier: modsForAnalytics)
+            }
+        }
+        return result
     }
 
-    // MARK: - Right-Click Tiling
+    // MARK: - Plain ⌘-click passthrough (issue #53)
+
+    /// Decide at mouseDown whether this press, should it end without a drag,
+    /// is to be replayed to the app as the ⌘-click the user actually made.
+    ///
+    /// Deliberately narrow: the configured modifier must be exactly ⌘ (no
+    /// extra chips, no Hyper) AND the keys physically held must be exactly ⌘.
+    /// Anyone on ⌥, ⌃, ⌘⌥, or holding ⌘⌥ for the macOS Option-tiling
+    /// augmentation keeps today's behavior (the click is swallowed) — that
+    /// scope was the user's call, so other setups see no change at all.
+    private func armPlainCommandClickReplay(for event: CGEvent, app: String) {
+        let held = event.flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
+        let configuredIsCommandOnly = modifiers == .command
+        let heldIsCommandOnly = held == .maskCommand
+        guard configuredIsCommandOnly, heldIsCommandOnly else {
+            cbState.withLock { state in
+                state.plainClickOrigin = nil
+                state.plainClickFlags = nil
+            }
+            // Only worth a line when the setup is ⌘-only but the press isn't
+            // (e.g. ⌘⌥ held) — with any other configured modifier this is the
+            // ordinary case and would just be noise on every drag.
+            if configuredIsCommandOnly {
+                Self.log.info("plain-click replay: not armed, held flags 0x\(String(held.rawValue, radix: 16)) are not ⌘ alone (app=\"\(app)\")")
+            }
+            return
+        }
+        let origin = event.location
+        let flags = event.flags
+        cbState.withLock { state in
+            state.plainClickOrigin = origin
+            state.plainClickFlags = flags
+        }
+        Self.log.info("plain-click replay: armed for app=\"\(app)\" at (\(Int(origin.x)), \(Int(origin.y))) — will replay if released without dragging")
+    }
+
+    // MARK: - Right Button (resize-from-anywhere or open TilingPanel)
+    //
+    // A modifier+right-click WITHOUT a drag opens the TilingPanel (the
+    // pre-existing behavior). A modifier+right-click WITH a drag starts a
+    // resize-from-anywhere gesture: the cursor's quadrant in the window
+    // picks the resize corner; the strategy rewrites events so the window
+    // server treats it as a native edge drag (no per-frame AX call). We
+    // can't decide which it is at down-time, so we suppress the down and
+    // defer the choice until rightMouseDragged (resize) or rightMouseUp
+    // without an intervening drag (panel).
 
     private func handleRightMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         // If tiling panel is visible, suppress right-click (avoid system context menu)
@@ -223,40 +1373,686 @@ final class DragEngine {
             return nil
         }
 
+        // Pass through only when BOTH features are off — having either one on
+        // means we want to suppress the right-click and engage our handlers.
+        guard tilingEnabled || resizeEnabled else {
+            return Unmanaged.passUnretained(event)
+        }
+
         guard matchesConfiguredModifier(event.flags) else {
-            return Unmanaged.passRetained(event)
+            logModifierMiss(flags: event.flags, button: "right")
+            return Unmanaged.passUnretained(event)
         }
 
         let screenPoint = event.location
 
-        let menuBarHeight = Double(NSStatusBar.system.thickness)
-        if let mainScreen = NSScreen.screens.first {
-            let mainFrame = mainScreen.frame
-            if screenPoint.x >= mainFrame.origin.x &&
-               screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
-               screenPoint.y < menuBarHeight {
-                return Unmanaged.passRetained(event)
-            }
+        // Pass clicks on the primary screen's menu bar through.
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passUnretained(event)
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
-            return Unmanaged.passRetained(event)
+            logNoWindowMiss(button: "right", at: screenPoint)
+            return Unmanaged.passUnretained(event)
         }
 
-        let mouseLocation = NSEvent.mouseLocation
-        let capturedInfo = windowInfo
-
-        DispatchQueue.main.async { [weak self] in
-            self?.showTilingPanel(at: mouseLocation, for: capturedInfo)
+        // Resize-from-anywhere disabled: skip the suppress-and-watch path
+        // and just open TilingPanel immediately, the way right-click did
+        // before the resize feature existed.
+        if !resizeEnabled {
+            let mouseLocation = NSEvent.mouseLocation
+            let captured = windowInfo
+            DispatchQueue.main.async { [weak self] in
+                self?.showTilingPanel(at: mouseLocation, for: captured)
+            }
+            return nil
         }
 
-        return nil
+        guard axGuardOrAbort("resizeStrategy.handleMouseDown(right)") else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Stash the target so a no-drag release can open the TilingPanel
+        // with the same window we considered here.
+        cbState.withLock { state in
+            state.rightTarget = windowInfo
+            state.rightOrigin = screenPoint
+        }
+
+        Self.log.info("right gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+
+        // Drop a stranded resize (e.g. an interrupted left-resize that lost its
+        // up) so its lingering overlay / AX poll / isActive can't bleed into
+        // this gesture — symmetric with `beginLeftResize`.
+        if resizeStrategy.isActive { resizeStrategy.reset() }
+
+        // Right-click resize carries no extra augment key to scrub from the
+        // synthesized native events; clear any value a prior left-resize set.
+        resizeStrategy.extraFlagsToStrip = []
+
+        // Suppress the down; the strategy will replay it as a leftMouseDown
+        // on the first drag (resize) — or `handleRightMouseUp` will open the
+        // panel if no drag arrives.
+        beginFlagScrub(candidates: resizeStrategy.flagsToStrip, heldOn: event)
+        return resizeStrategy.handleMouseDown(
+            pid: windowInfo.pid,
+            windowID: windowInfo.windowID,
+            windowFrame: windowInfo.frame,
+            event: event
+        )
     }
 
-    private func showTilingPanel(at point: NSPoint, for windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
+    private func handleRightMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard resizeStrategy.isActive else {
+            return Unmanaged.passUnretained(event)
+        }
+        return resizeStrategy.handleMouseDragged(event: event)
+    }
+
+    private func handleRightMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard resizeStrategy.isActive else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let didDrag = resizeStrategy.didDrag
+        let result = resizeStrategy.handleMouseUp(event: event)
+        endFlagScrub(release: result, event: event)
+
+        if didDrag {
+            // Resize committed natively via the rewritten event stream.
+            // Clear the pending right-gesture state and we're done.
+            cbState.withLock { state in
+                state.rightTarget = nil
+                state.rightOrigin = nil
+            }
+            return result
+        }
+
+        // No drag — fall through to the original "open TilingPanel" behavior
+        // using the target we stashed at mouseDown.
+        let pending: (target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String), origin: CGPoint)? = cbState.withLock { state in
+            guard let target = state.rightTarget, let origin = state.rightOrigin else { return nil }
+            state.rightTarget = nil
+            state.rightOrigin = nil
+            return (target, origin)
+        }
+        if let pending, tilingEnabled {
+            // `NSEvent.mouseLocation` gives us NS-coords (bottom-left origin);
+            // the original right-down code used that, so mirror it here for
+            // consistent panel positioning. Skip when tiling is off — the
+            // user only enabled resize, so a no-drag click should be a
+            // no-op rather than popping a panel they don't want.
+            let mouseLocation = NSEvent.mouseLocation
+            let target = pending.target
+            DispatchQueue.main.async { [weak self] in
+                self?.showTilingPanel(at: mouseLocation, for: target)
+            }
+        }
+        return result  // typically nil — strategy.handleMouseUp returns nil on no-drag
+    }
+
+    // MARK: - Middle Button (drag or tile-by-direction)
+
+    private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Only the middle button (button 2) — leave side buttons (3, 4) alone.
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Skip our own replay events so they don't recurse.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard middleAction != .off else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        if tilingPanel?.isVisible == true {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Don't start a middle gesture while a left drag is in flight.
+        if strategy.isActive {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Defense in depth: if a previous tile gesture lost its mouse-up (rare —
+        // tap-disabled events also clean up), drop the stranded state before
+        // starting a new one so the old overlay can't survive.
+        let hadStaleTile = cbState.withLock { $0.tileTarget != nil }
+        if hadStaleTile {
+            abortTileGesture()
+        }
+
+        let screenPoint = event.location
+
+        // Pass clicks on the primary screen's menu bar through (mirrors handleMouseDown).
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            logNoWindowMiss(button: "middle", at: screenPoint)
+            return Unmanaged.passUnretained(event)
+        }
+
+        switch middleAction {
+        case .off:
+            return Unmanaged.passUnretained(event)
+
+        case .dragWindow:
+            guard axGuardOrAbort("strategy.handleMouseDown(middle)") else {
+                return Unmanaged.passUnretained(event)
+            }
+            cbState.withLock { $0.middleClickOrigin = screenPoint }
+            strategy.reset()
+            Self.log.info("middle drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+            let middleOffset = effectiveTitleBarYOffset(forPid: windowInfo.pid)
+            let middleProbe = visibleTopInset(pid: windowInfo.pid, windowFrame: windowInfo.frame,
+                                              aimX: event.location.x, cursorY: event.location.y)
+            Self.log.info("top probe: app=\"\(windowInfo.app)\" window=\(Int(windowInfo.frame.width))x\(Int(windowInfo.frame.height)) \(middleProbe.summary)")
+            beginFlagScrub(candidates: TitleBarDragStrategy.modifierFlagsToStrip, heldOn: event)
+            return strategy.handleMouseDown(
+                pid: windowInfo.pid,
+                windowID: windowInfo.windowID,
+                windowFrame: windowInfo.frame,
+                event: event,
+                rewriteToLeftButton: true,
+                titleBarYOffset: middleOffset,
+                visibleTopInset: middleProbe.inset,
+                activateApp: middleProbe.hasTitleBar,
+                debugCaption: middleProbe.summary
+            )
+
+        case .tileByDirection:
+            // Window stays put — we use the middle drag to pick a tile target.
+            // In drag-only mode the panel is withheld until the cursor moves
+            // (see handleOtherMouseDragged); otherwise it shows immediately.
+            let dragOnly = tileByDirectionDragOnly
+            cbState.withLock { state in
+                state.middleClickOrigin = screenPoint
+                state.tileTarget = windowInfo
+                state.tileZone = nil
+                state.tileTargetScreen = nil
+                state.tileAction = nil
+                state.tileSawDirection = false
+                state.tileDotShown = !dragOnly
+            }
+            if !dragOnly {
+                DispatchQueue.main.async { [weak self] in
+                    self?.presentTileCancelDot(at: screenPoint)
+                }
+            }
+            Self.log.info("tile gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) dragOnly=\(dragOnly)")
+            return nil  // suppress the down; will replay middle-click on no-drag release
+        }
+    }
+
+    /// Configure and show the tile cancel dot for the in-flight gesture,
+    /// anchored at `origin`. Main thread. No-op if the gesture was aborted
+    /// between the dispatch and now.
+    private func presentTileCancelDot(at origin: CGPoint) {
+        let target: (pid: pid_t, app: String, frame: CGRect)? = cbState.withLock { state in
+            guard let t = state.tileTarget else { return nil }
+            return (t.pid, t.app, t.frame)
+        }
+        guard let target else { return }
+        tileCancelDot.multiDisplayEnabled = multiDisplayBentoEnabled
+        tileCancelDot.borderEnabled = bentoBorderEnabled
+        tileCancelDot.windowActionsEnabled = bentoWindowActionsEnabled
+        tileCancelDot.material = bentoMaterial
+        tileCancelDot.tint = bentoTint
+        tileCancelDot.edgeSafeEnabled = overlayEdgeSafeEnabled
+        tileCancelDot.setTarget(pid: target.pid, appName: target.app,
+                                source: tileSource(forWindowCGFrame: target.frame))
+        tileCancelDot.show(atCGPoint: origin)
+    }
+
+    private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // If a tile gesture is in flight, dispatch the cursor position to
+        // main so the bento panel can resolve (cursor → display + zone)
+        // using its current layout. Storing the result back under the lock
+        // makes the update visible to abort/mouseUp paths.
+        let tileState: (active: Bool, dotShown: Bool, origin: CGPoint) = cbState.withLock { state in
+            guard state.tileTarget != nil, let origin = state.middleClickOrigin else {
+                return (false, false, .zero)
+            }
+            return (true, state.tileDotShown, origin)
+        }
+        if tileState.active {
+            let cursorScreenPoint = event.location
+
+            // Drag-only mode: the cancel dot was withheld on mouse-down. Keep
+            // the gesture armed (consume the event) but show nothing until the
+            // cursor travels past the reveal threshold, then anchor the dot at
+            // the ORIGINAL click so directions stay relative to the press.
+            if !tileState.dotShown {
+                let dx = cursorScreenPoint.x - tileState.origin.x
+                let dy = cursorScreenPoint.y - tileState.origin.y
+                guard (dx * dx + dy * dy) >= Self.tileDragRevealThresholdSquared else {
+                    return nil
+                }
+                cbState.withLock { $0.tileDotShown = true }
+                let origin = tileState.origin
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.presentTileCancelDot(at: origin)
+                    self.resolveTileDrag(cursorScreenPoint: cursorScreenPoint)
+                }
+                return nil
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.resolveTileDrag(cursorScreenPoint: cursorScreenPoint)
+            }
+            return nil
+        }
+
+        // Drag-window path (existing).
+        let hasOrigin = cbState.withLock { $0.middleClickOrigin != nil }
+        guard strategy.isActive, hasOrigin else {
+            return Unmanaged.passUnretained(event)
+        }
+        return strategy.handleMouseDragged(event: event)
+    }
+
+    /// Resolve the bento hit for the current cursor and update the overlay +
+    /// cancel dot. Main thread. No-op if the gesture was aborted between the
+    /// originating drag event and this dispatch.
+    private func resolveTileDrag(cursorScreenPoint: CGPoint) {
+        let hit = tileCancelDot.resolve(cursorAtCGPoint: cursorScreenPoint)
+        // The window's frame comes back out with the same lock that arms the
+        // gesture state: `.moveToDisplay` previews are relative to it.
+        let windowCGFrame: CGRect? = cbState.withLock { state -> CGRect? in
+            guard let target = state.tileTarget else { return nil }
+            switch hit {
+            case .tile(let screen, let zone)?:
+                state.tileZone = zone
+                state.tileTargetScreen = screen
+                state.tileAction = nil
+            case .action(let action)?:
+                state.tileZone = nil
+                state.tileTargetScreen = nil
+                state.tileAction = action
+            case nil:
+                state.tileZone = nil
+                state.tileTargetScreen = nil
+                state.tileAction = nil
+            }
+            if hit != nil { state.tileSawDirection = true }
+            return target.frame
+        }
+        guard let windowCGFrame else { return }
+        switch hit {
+        case .tile(let screen, let zone)?:
+            // Same `centeredFraction` and source the commit uses (`applyTile`)
+            // — the preview must show where the window will actually land.
+            let target = zone.rect(in: screen.visibleFrame,
+                                   centeredFraction: centeredFraction,
+                                   source: tileSource(forWindowCGFrame: windowCGFrame))
+            tileOverlay.show(rect: target)
+        case .action?, nil:
+            // A window action doesn't move the window, so there is no landing
+            // spot to preview; the segment's own highlight is the feedback.
+            tileOverlay.hide()
+        }
+        tileCancelDot.setActive(hit)
+    }
+
+    private func handleOtherMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Tile-by-direction path. Pull all gesture state out under one
+        // lock so the read+clear pair is atomic with a concurrent
+        // `abortTileGesture` from main.
+        struct TileFinish {
+            let target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)
+            let origin: CGPoint
+            let zone: TileZone?
+            let targetScreen: NSScreen?
+            let action: WindowAction?
+            let sawDirection: Bool
+        }
+        let tileFinish: TileFinish? = cbState.withLock { state -> TileFinish? in
+            guard let target = state.tileTarget, let origin = state.middleClickOrigin else { return nil }
+            let zone = state.tileZone
+            let targetScreen = state.tileTargetScreen
+            let action = state.tileAction
+            let sawDirection = state.tileSawDirection
+            state.tileTarget = nil
+            state.middleClickOrigin = nil
+            state.tileZone = nil
+            state.tileTargetScreen = nil
+            state.tileAction = nil
+            state.tileSawDirection = false
+            state.tileDotShown = false
+            return TileFinish(target: target, origin: origin, zone: zone,
+                              targetScreen: targetScreen, action: action,
+                              sawDirection: sawDirection)
+        }
+        if let finish = tileFinish {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.tileCancelDot.hide()
+                if let action = finish.action {
+                    self.tileOverlay.hide()
+                    self.performWindowAction(action, target: finish.target)
+                } else if let zone = finish.zone, let screen = finish.targetScreen {
+                    self.applyTile(zone: zone, target: finish.target, screen: screen)
+                } else if finish.sawDirection {
+                    self.tileOverlay.hide()
+                    // User actively chose a direction and then moved back into
+                    // the cancel cell — clean cancel, don't replay the click.
+                    Self.log.info("tile gesture cancelled by user (returned to deadzone)")
+                } else {
+                    self.tileOverlay.hide()
+                    // Cursor never left the center cell — treat as a plain
+                    // middle-click so apps still see it (browser tab close, etc.).
+                    self.replayClick(button: .middle, at: finish.origin)
+                }
+            }
+            return nil
+        }
+
+        // Drag-window path (existing). Pull and clear `middleClickOrigin`
+        // atomically so a concurrent abort can't observe a half-cleared state.
+        let dragOrigin: CGPoint? = cbState.withLock { state -> CGPoint? in
+            let o = state.middleClickOrigin
+            state.middleClickOrigin = nil
+            return o
+        }
+        guard strategy.isActive, dragOrigin != nil else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let didDrag = strategy.didDrag
+        let origin = dragOrigin
+
+        let result = strategy.handleMouseUp(event: event)
+        endFlagScrub(release: result, event: event)
+
+        // Click without drag: replay a synthesized middle-click at the original
+        // location so apps still see the click (browsers, IDEs, etc). Dispatch
+        // off the tap thread — posting from inside the callback can re-enter
+        // our own tap synchronously on the same run loop.
+        if !didDrag, let origin {
+            DispatchQueue.main.async { [weak self] in
+                self?.replayClick(button: .middle, at: origin)
+            }
+        } else if didDrag {
+            DispatchQueue.main.async {
+                Analytics.trackDrag(trigger: .middle, modifier: ModifierCombination())
+            }
+        }
+
+        return result
+    }
+
+    // MARK: - Tile Application
+
+    /// Snap the target window to the tile zone's rect on the given screen.
+    /// Saves the original frame in savedFrames so the existing double-click-restore works.
+    private func applyTile(zone: TileZone,
+                           target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
+                           screen: NSScreen) {
+        guard axGuardOrAbort("applyTile") else {
+            tileOverlay.hide()
+            return
+        }
+        Analytics.trackTile(tile: zone.analyticsKey, trigger: .middleDirection)
+        guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else {
+            Self.log.warn("applyTile: findAXWindow returned nil for pid=\(target.pid) wid=\(target.windowID)")
+            tileOverlay.hide()
+            return
+        }
+        Self.log.info("tile commit: app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)")
+
+        // The live frame is read BEFORE the target is computed: `.moveToDisplay`
+        // is defined relative to where the window is right now.
+        let currentFrame = getWindowFrame(axWindow) ?? target.frame
+        let nsRect = zone.rect(in: screen.visibleFrame,
+                               centeredFraction: centeredFraction,
+                               source: tileSource(forWindowCGFrame: currentFrame))
+        let cgRect = cgRectFromNSScreenRect(nsRect)
+
+        // Remember the pre-AnyDrag frame so restore / double-click can go back.
+        rememberOriginalFrame(windowID: target.windowID, pid: target.pid, currentFrame: currentFrame)
+
+        let sourceCenter = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
+        let destinationCenter = CGPoint(x: cgRect.midX, y: cgRect.midY)
+        let sourceScreen = self.screen(containingCGPoint: sourceCenter)
+        let destinationScreen = self.screen(containingCGPoint: destinationCenter)
+        // Register the placement so a complementary half-screen pair on this
+        // screen exposes a draggable shared divider (linked resize), unless the
+        // feature is off — then there is nothing to track. A half tile
+        // registers only AFTER the frame is applied (the deferred cross-screen
+        // path lands the final size ~100ms later; registering the target frame
+        // up front would let the pair validation read the still-pre-resize
+        // frame, judge it non-adjacent, and dissolve the group). A non-half
+        // tile just drops the window from tracking — no frame dependency.
+        let registerLinkedResize: () -> Void
+        if linkedResizeEnabled {
+            let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
+            switch zone {
+            case .left, .right:
+                let slot: LinkedTileSlot = zone == .left ? .left : .right
+                registerLinkedResize = { [weak self] in
+                    self?.linkedResizeController.recordTiledWindow(
+                        windowID: target.windowID, pid: target.pid,
+                        frame: cgRect, screenFrame: screenFrame, slot: slot
+                    )
+                }
+            default:
+                linkedResizeController.removeWindow(target.windowID)
+                registerLinkedResize = {}
+            }
+        } else {
+            registerLinkedResize = {}
+        }
+
+        if let sourceScreen,
+           let destinationScreen,
+           sourceScreen.frame != destinationScreen.frame,
+           Self.needsDeferredCrossScreenTileSizing {
+            setCrossScreenTileFrame(
+                axWindow,
+                frame: cgRect,
+                destinationScreenFrame: destinationScreen.frame,
+                target: target,
+                zone: zone,
+                onFrameApplied: registerLinkedResize
+            )
+        } else {
+            setWindowFrame(axWindow, frame: cgRect)
+            registerLinkedResize()
+            tileOverlay.hide()
+        }
+    }
+
+    /// macOS 27 updates a moved AX window's display assignment asynchronously.
+    /// Keep the preview visible while moving at the current size, then apply
+    /// the final size after WindowServer recognizes the destination display.
+    /// `onFrameApplied` runs on main only after the final size+position write
+    /// succeeds — callers hang frame-dependent work (linked-resize
+    /// registration) on it; the failure/early-return paths never fire it.
+    private func setCrossScreenTileFrame(
+        _ axWindow: AXUIElement,
+        frame targetFrame: CGRect,
+        destinationScreenFrame: NSRect,
+        target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
+        zone: TileZone,
+        onFrameApplied: @escaping () -> Void
+    ) {
+        var targetPosition = targetFrame.origin
+        withEnhancedUIDisabled(for: axWindow) {
+            if let value = AXValueCreate(.cgPoint, &targetPosition) {
+                AXUIElementSetAttributeValue(axWindow, kAXPositionAttribute as CFString, value)
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.crossScreenTileSettleDelay
+        ) { [weak self] in
+            guard let self else { return }
+            defer { self.tileOverlay.hide() }
+
+            guard let actualFrame = self.getWindowFrame(axWindow) else { return }
+            let actualCenter = CGPoint(x: actualFrame.midX, y: actualFrame.midY)
+            guard let actualScreen = self.screen(containingCGPoint: actualCenter),
+                  actualScreen.frame == destinationScreenFrame
+            else {
+                Self.log.warn(
+                    "cross-screen tile did not reach destination before resize: "
+                        + "app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)"
+                )
+                return
+            }
+
+            var targetSize = targetFrame.size
+            var finalPosition = targetFrame.origin
+            self.withEnhancedUIDisabled(for: axWindow) {
+                if let value = AXValueCreate(.cgSize, &targetSize) {
+                    AXUIElementSetAttributeValue(axWindow, kAXSizeAttribute as CFString, value)
+                }
+                if let value = AXValueCreate(.cgPoint, &finalPosition) {
+                    AXUIElementSetAttributeValue(axWindow, kAXPositionAttribute as CFString, value)
+                }
+            }
+            Self.log.info(
+                "cross-screen tile finalized after destination assignment: "
+                    + "app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)"
+            )
+            onFrameApplied()
+        }
+    }
+
+    /// Convert an NSScreen-coord rect (bottom-left origin) into a Quartz CG rect (top-left origin).
+    private func cgRectFromNSScreenRect(_ ns: NSRect) -> CGRect {
+        guard let primary = NSScreen.screens.first else { return ns }
+        let primaryHeight = primary.frame.height
+        return CGRect(x: ns.origin.x,
+                      y: primaryHeight - ns.origin.y - ns.height,
+                      width: ns.width, height: ns.height)
+    }
+
+    /// Convert a Quartz CG rect (top-left origin) into NSScreen coords (bottom-left origin).
+    private func nsScreenRectFromCGRect(_ cg: CGRect) -> NSRect {
+        guard let primary = NSScreen.screens.first else { return cg }
+        let primaryHeight = primary.frame.height
+        return NSRect(x: cg.origin.x,
+                      y: primaryHeight - cg.origin.y - cg.height,
+                      width: cg.width, height: cg.height)
+    }
+
+    /// The `TileZone.Source` for a window sitting at `cgFrame` (Quartz coords):
+    /// its own frame plus the visible frame of the display it is currently on,
+    /// both in NS coords. `.moveToDisplay` is defined against exactly this.
+    private func tileSource(forWindowCGFrame cgFrame: CGRect) -> TileZone.Source {
+        let nsFrame = nsScreenRectFromCGRect(cgFrame)
+        let center = CGPoint(x: cgFrame.midX, y: cgFrame.midY)
+        let visible = screen(containingCGPoint: center)?.visibleFrame ?? nsFrame
+        return TileZone.Source(frame: nsFrame, visible: visible)
+    }
+
+    /// Find the NSScreen containing a given CG point (top-left origin, Y-down).
+    private func screen(containingCGPoint cg: CGPoint) -> NSScreen? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        let primaryHeight = primary.frame.height
+        let nsPoint = NSPoint(x: cg.x, y: primaryHeight - cg.y)
+        return NSScreen.screens.first { $0.frame.contains(nsPoint) } ?? primary
+    }
+
+    /// Returns true if `cgPoint` falls inside the **primary** screen's
+    /// menu-bar zone (the top `NSStatusBar.system.thickness` pt strip).
+    /// Click handlers use this to pass menu-bar clicks through to the
+    /// system instead of treating them as window drags.
+    ///
+    /// The Y lower bound (`>= 0`) matters: CG coordinates are global with
+    /// the primary's top-left as origin, so a secondary display positioned
+    /// above the primary has CG y < 0. Without the lower bound, every
+    /// click on such a secondary display has y < menuBarHeight and was
+    /// silently passed through — breaking AnyDrag entirely on that
+    /// screen. (See issue #4.)
+    private static func isOnPrimaryMenuBar(_ cgPoint: CGPoint) -> Bool {
+        guard let primary = NSScreen.screens.first else { return false }
+        let primaryFrame = primary.frame
+        let menuBarHeight = NSStatusBar.system.thickness
+        return cgPoint.y >= 0 &&
+               cgPoint.y < menuBarHeight &&
+               cgPoint.x >= primaryFrame.origin.x &&
+               cgPoint.x <= primaryFrame.origin.x + primaryFrame.width
+    }
+
+    /// Which button a swallowed click is put back as.
+    private enum ReplayButton {
+        case left, middle
+
+        var types: (down: CGEventType, up: CGEventType, button: CGMouseButton) {
+            switch self {
+            case .left:   return (.leftMouseDown, .leftMouseUp, .left)
+            case .middle: return (.otherMouseDown, .otherMouseUp, .center)
+            }
+        }
+    }
+
+    /// Post a whole click (down + up) at `point`, tagged so our own tap waves
+    /// it through. Used when a press we suppressed at mouseDown turned out to
+    /// be a plain click the app should have received: the middle-button tap
+    /// (browser tab close etc.) and, since issue #53, a plain ⌘-click with ⌘
+    /// as the only configured modifier.
+    ///
+    /// `flags`: the modifier flags to stamp on both events. The ⌘-click replay
+    /// passes the flags recorded at the real mouseDown so the app sees the
+    /// same ⌘ (+⇧ …) the user held. nil leaves whatever the event source
+    /// supplies, which is what the middle-click path always did.
+    private func replayClick(button: ReplayButton, at point: CGPoint, flags: CGEventFlags? = nil) {
+        let label = button == .left ? "replayClick(left)" : "replayClick(middle)"
+        guard let source = CGEventSource(stateID: .hidSystemState) else {
+            Self.log.warn("\(label): CGEventSource creation failed — click swallowed")
+            return
+        }
+        source.userData = Self.synthesizedEventMarker
+        // After any post, macOS suppresses the user's real mouse motion for
+        // 0.25 s by default. That starved the start of the next gesture in the
+        // no-drag-move investigation; a click that costs the user a quarter
+        // second of frozen cursor is the same bug, so zero it here too.
+        source.localEventsSuppressionInterval = 0
+
+        let types = button.types
+        for (phase, type) in [("down", types.down), ("up", types.up)] {
+            guard let e = CGEvent(
+                mouseEventSource: source,
+                mouseType: type,
+                mouseCursorPosition: point,
+                mouseButton: types.button
+            ) else {
+                Self.log.warn("\(label): failed to create mouse\(phase) event")
+                continue
+            }
+            if let flags { e.flags = flags }
+            e.post(tap: .cghidEventTap)
+        }
+        Self.log.info("\(label): posted down+up at (\(Int(point.x)), \(Int(point.y)))\(flags.map { " flags=0x\(String($0.rawValue, radix: 16))" } ?? "")")
+    }
+
+    private func showTilingPanel(at point: NSPoint, for windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
+        Self.log.info("tile panel: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
         tilingPanel?.dismiss()
 
-        let panel = TilingPanel()
+        // Main thread (both call sites dispatch here), so reading `savedFrames`
+        // is safe. No record → nothing to restore → the button renders disabled.
+        let panel = TilingPanel(canRestore: savedFrame(windowID: windowInfo.windowID, pid: windowInfo.pid) != nil)
         panel.onAction = { [weak self] action in
             self?.performTileAction(action, windowInfo: windowInfo)
         }
@@ -265,15 +2061,27 @@ final class DragEngine {
     }
 
     private func matchesConfiguredModifier(_ flags: CGEventFlags) -> Bool {
+        // Virtual `.hyper` modifier: when selected and CapsLock is held (per the
+        // HyperCapslock source), arm regardless of flags — CapsLock isn't a flag.
+        // OR-ed in, so it coexists with any flag chips. Only needs to hold at the
+        // instant of mouse-down.
+        if modifiers.contains(.hyper) && hyperCapslockSource.isHeld {
+            return true
+        }
+
         let cleanedFlags = flags.subtracting(.maskNonCoalesced)
         let activeModifiers = cleanedFlags.intersection(Self.relevantModifierMask)
-        let targetModifiers = modifierKey.eventFlags
+        let targetModifiers = modifiers.eventFlags
+
+        // Empty target = no modifier configured; never match (avoids matching
+        // every plain click).
+        guard !targetModifiers.isEmpty else { return false }
 
         if activeModifiers == targetModifiers {
             return true
         }
 
-        guard modifierKey.supportsOptionAugmentation else {
+        guard modifiers.supportsOptionAugmentation else {
             return false
         }
 
@@ -282,86 +2090,205 @@ final class DragEngine {
         return activeModifiers == targetModifiers.union(.maskAlternate)
     }
 
-    private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
-        guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else { return }
-        guard let screen = screenVisibleFrame(for: windowInfo.frame) else { return }
+    /// True while the configured primary modifier is still physically held.
+    /// Drives the TilingPanel auto-dismiss (issue #29). Unlike
+    /// `matchesConfiguredModifier`, this is a *superset* test, not an exact
+    /// match: pressing an extra modifier on top of the primary doesn't count as
+    /// "released", so only lifting the primary itself closes the panel.
+    private func primaryModifierHeld(_ flags: CGEventFlags) -> Bool {
+        // Hyper base: its held state lives in the CapsLock source, not the flags.
+        // (Hyper is exclusive — it never coexists with real flag modifiers.)
+        if modifiers.contains(.hyper) {
+            return hyperCapslockSource.isHeld
+        }
+        let target = modifiers.eventFlags
+        // No primary configured = nothing to hold; treat as not-held.
+        guard !target.isEmpty else { return false }
+        let active = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
+        return active.isSuperset(of: target)
+    }
 
-        // Save original frame for double-click restore
-        let currentFrame = getWindowFrame(axWindow) ?? windowInfo.frame
-        savedFrames[windowInfo.windowID] = currentFrame
+    /// True when the held flags are exactly the configured secondary modifier —
+    /// the trigger for left-click resize. The secondary key arms it on its own;
+    /// the primary modifier is NOT required (it gates only the move/right-resize
+    /// gestures). Returns false (so the event falls through to the move/maximize
+    /// path) whenever the feature is off, the app has no primary modifier
+    /// configured (effectively off), or the secondary is identical to the base.
+    private func matchesLeftResizeModifier(_ flags: CGEventFlags) -> Bool {
+        guard leftResizeEnabled else { return false }
+        // No primary modifier configured means AnyDrag is off; don't arm resize
+        // on the bare secondary in that state. (`modifiers` still counts as
+        // non-empty for a Hyper/CapsLock base, whose eventFlags are empty.)
+        guard !modifiers.isEmpty else { return false }
+        let augment = leftResizeModifier
+        // The secondary must be a single real flag key and must not be identical
+        // to the move shortcut. Containment in a multi-key base is safe because
+        // both paths use exact flag matching.
+        guard augment.isValidAugment(for: modifiers) else { return false }
+        let augmentFlags = augment.eventFlags
+        guard !augmentFlags.isEmpty else { return false }
+
+        let cleanedFlags = flags.subtracting(.maskNonCoalesced)
+        let activeModifiers = cleanedFlags.intersection(Self.relevantModifierMask)
+        // Exactly the secondary flag held — no primary, no extras. (CapsLock
+        // carries no event flag, so a Hyper base is simply ignored here.)
+        return activeModifiers == augmentFlags
+    }
+
+    private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
+        guard axGuardOrAbort("performTileAction") else { return }
+        Analytics.trackTile(tile: action.analyticsKey, trigger: .panel)
+        guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else {
+            Self.log.warn("performTileAction: findAXWindow returned nil for pid=\(windowInfo.pid) wid=\(windowInfo.windowID)")
+            return
+        }
+        // Window-state actions, handled BEFORE the `rememberOriginalFrame` call
+        // below: `restoreOriginal` reads that very record, so recording first
+        // would overwrite the frame it needs with the current (already tiled)
+        // one; `minimize` doesn't touch the frame at all, so there is nothing
+        // worth remembering.
+        switch action {
+        case .restoreOriginal:
+            restoreOriginalFrame(axWindow, windowID: windowInfo.windowID, pid: windowInfo.pid, app: windowInfo.app)
+            return
+        case .minimize:
+            // Only drop it from linked-resize tracking if it really did
+            // minimize — a window that stayed put is still half of its pair.
+            if minimizeWindow(axWindow, app: windowInfo.app) {
+                linkedResizeController.removeWindow(windowInfo.windowID)
+            }
+            return
+        default:
+            break
+        }
+
+        guard let screen = screenVisibleFrame(for: windowInfo.frame) else {
+            Self.log.warn("performTileAction: screenVisibleFrame returned nil for frame=\(windowInfo.frame)")
+            return
+        }
+
+        // Remember the pre-AnyDrag frame so restore / double-click can go back.
+        rememberOriginalFrame(windowID: windowInfo.windowID, pid: windowInfo.pid,
+                              currentFrame: getWindowFrame(axWindow) ?? windowInfo.frame)
+
+        func placeCurrent(_ frame: CGRect, slot: LinkedTileSlot? = nil) {
+            setWindowFrame(axWindow, frame: frame)
+            // No linked-resize tracking while the feature is off.
+            guard linkedResizeEnabled else { return }
+            if let slot {
+                linkedResizeController.recordTiledWindow(
+                    windowID: windowInfo.windowID,
+                    pid: windowInfo.pid,
+                    frame: frame,
+                    screenFrame: screen,
+                    slot: slot
+                )
+            } else {
+                linkedResizeController.removeWindow(windowInfo.windowID)
+            }
+        }
 
         switch action {
         // MARK: Move & Resize
         case .leftHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height), slot: .left)
 
         case .rightHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.midX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height), slot: .right)
 
         case .topHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.minY,
-                width: screen.width, height: screen.height / 2))
+                width: screen.width, height: screen.height / 2), slot: .top)
 
         case .bottomHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.midY,
-                width: screen.width, height: screen.height / 2))
+                width: screen.width, height: screen.height / 2), slot: .bottom)
 
         case .topLeft:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.minY,
                 width: screen.width / 2, height: screen.height / 2))
 
         case .topRight:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.midX, y: screen.minY,
                 width: screen.width / 2, height: screen.height / 2))
 
         case .bottomLeft:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.midY,
                 width: screen.width / 2, height: screen.height / 2))
 
         case .bottomRight:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.midX, y: screen.midY,
                 width: screen.width / 2, height: screen.height / 2))
+
+        case .centered:
+            // Same helper and same user setting as the middle-drag-down gesture.
+            placeCurrent(TileZone.centeredRect(in: screen, fraction: centeredFraction))
+
+        case .restoreOriginal, .minimize:
+            // Handled above, before the pre-AnyDrag frame is recorded.
+            break
 
         // MARK: Fill & Arrange
         case .fill:
             // Maximize to screen's visible area (keeps title bar)
-            setWindowFrame(axWindow, frame: screen)
+            placeCurrent(screen)
 
         case .leftAndRight:
             // Current window → left half, next Z-order window → right half
-            setWindowFrame(axWindow, frame: CGRect(
+            let leftFrame = CGRect(
                 x: screen.minX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height)
+            placeCurrent(leftFrame, slot: .left)
             if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
-                savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
-                setWindowFrame(next.axWindow, frame: CGRect(
+                rememberOriginalFrame(windowID: next.windowID, pid: next.pid,
+                                      currentFrame: getWindowFrame(next.axWindow) ?? next.frame)
+                let rightFrame = CGRect(
                     x: screen.midX, y: screen.minY,
-                    width: screen.width / 2, height: screen.height))
+                    width: screen.width / 2, height: screen.height)
+                setWindowFrame(next.axWindow, frame: rightFrame)
+                if linkedResizeEnabled {
+                    linkedResizeController.recordTiledWindow(
+                        windowID: next.windowID, pid: next.pid,
+                        frame: rightFrame, screenFrame: screen, slot: .right
+                    )
+                }
             }
 
         case .fillRight:
             // Current window → right half, next Z-order window → left half
-            setWindowFrame(axWindow, frame: CGRect(
+            let rightFrame = CGRect(
                 x: screen.midX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height)
+            placeCurrent(rightFrame, slot: .right)
             if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
-                savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
-                setWindowFrame(next.axWindow, frame: CGRect(
+                rememberOriginalFrame(windowID: next.windowID, pid: next.pid,
+                                      currentFrame: getWindowFrame(next.axWindow) ?? next.frame)
+                let leftFrame = CGRect(
                     x: screen.minX, y: screen.minY,
-                    width: screen.width / 2, height: screen.height))
+                    width: screen.width / 2, height: screen.height)
+                setWindowFrame(next.axWindow, frame: leftFrame)
+                if linkedResizeEnabled {
+                    linkedResizeController.recordTiledWindow(
+                        windowID: next.windowID, pid: next.pid,
+                        frame: leftFrame, screenFrame: screen, slot: .left
+                    )
+                }
             }
 
         case .quarters:
+            if linkedResizeEnabled {
+                linkedResizeController.removeWindow(windowInfo.windowID)
+            }
             // Top 4 windows by Z-order → quadrants
             let quadrants = [
                 CGRect(x: screen.minX, y: screen.minY,
@@ -378,7 +2305,8 @@ final class DragEngine {
             // Next windows → remaining quadrants
             let others = windowsOnScreen(after: windowInfo.windowID, screen: screen, limit: 3)
             for (i, other) in others.enumerated() {
-                savedFrames[other.windowID] = getWindowFrame(other.axWindow) ?? other.frame
+                rememberOriginalFrame(windowID: other.windowID, pid: other.pid,
+                                      currentFrame: getWindowFrame(other.axWindow) ?? other.frame)
                 setWindowFrame(other.axWindow, frame: quadrants[i + 1])
             }
         }
@@ -387,30 +2315,212 @@ final class DragEngine {
     // MARK: - Maximize / Restore
 
     private func toggleMaximize(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
-        guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else { return }
+        // Always run on main: same-process AX writes call NSWindow (which
+        // requires main); routing every maximize through main also keeps
+        // savedFrames mutations single-threaded with the tile paths.
+        DispatchQueue.main.async { [weak self] in
+            self?.toggleMaximizeImpl(windowID: windowID, pid: pid, windowFrame: windowFrame)
+        }
+    }
+
+    private func toggleMaximizeImpl(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
+        guard axGuardOrAbort("toggleMaximizeImpl") else { return }
+        Analytics.trackMaximize()
+        guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else {
+            Self.log.warn("toggleMaximizeImpl: findAXWindow returned nil for pid=\(pid) wid=\(windowID)")
+            return
+        }
 
         // Activate the target app and raise the window
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
 
-        if let savedFrame = savedFrames[windowID] {
+        if let savedFrame = savedFrame(windowID: windowID, pid: pid) {
             // Restore to original frame
             setWindowFrame(axWindow, frame: savedFrame)
             savedFrames.removeValue(forKey: windowID)
         } else {
             // Save current frame and maximize to screen's visible area
-            let currentFrame = getWindowFrame(axWindow) ?? windowFrame
-            savedFrames[windowID] = currentFrame
+            rememberOriginalFrame(windowID: windowID, pid: pid,
+                                  currentFrame: getWindowFrame(axWindow) ?? windowFrame)
             if let targetFrame = screenVisibleFrame(for: windowFrame) {
                 setWindowFrame(axWindow, frame: targetFrame)
             }
         }
     }
 
+    /// Record a window's pre-AnyDrag frame — but only the FIRST time. A window
+    /// that already has a record keeps it, so "restore" goes back to how the
+    /// window looked before AnyDrag first touched it instead of undoing one
+    /// step: tile left, then tile right, then restore lands on the original
+    /// size, not on the left half. Every `savedFrames` write goes through here.
+    ///
+    /// `currentFrame` is an autoclosure so the AX read it usually performs is
+    /// skipped entirely on the (common) repeat-tile path.
+    ///
+    /// A record whose pid doesn't match is not this window's — it belonged to a
+    /// closed window that used to own this id — so it's replaced rather than
+    /// preserved. Without that check, "keep the first record" would hand the new
+    /// window an unrelated frame to restore to.
+    ///
+    /// Main thread only — same constraint the tile and maximize paths already
+    /// carry, which is what keeps `savedFrames` single-threaded.
+    private func rememberOriginalFrame(windowID: CGWindowID, pid: pid_t, currentFrame: @autoclosure () -> CGRect) {
+        if let existing = savedFrames[windowID], existing.pid == pid { return }
+        savedFrames[windowID] = RememberedFrame(pid: pid, frame: currentFrame())
+    }
+
+    /// The remembered pre-AnyDrag frame for a window, or nil when there is none
+    /// to go back to. A record left behind by a different process's window is
+    /// dropped here rather than being handed out.
+    private func savedFrame(windowID: CGWindowID, pid: pid_t) -> CGRect? {
+        guard let record = savedFrames[windowID] else { return nil }
+        guard record.pid == pid else {
+            Self.log.info("savedFrame: dropping stale record for wid=\(windowID) (recorded pid=\(record.pid), now pid=\(pid))")
+            savedFrames.removeValue(forKey: windowID)
+            return nil
+        }
+        return record.frame
+    }
+
+    /// Put the window back to the frame it had before AnyDrag first moved it and
+    /// forget the record, so the next tile starts a fresh one.
+    ///
+    /// The panel greys its Restore button out when there is nothing recorded, so
+    /// the no-record path here is only reachable if the record disappeared
+    /// between the panel opening and the click. Log it and leave the window
+    /// alone rather than guessing at a size.
+    private func restoreOriginalFrame(_ axWindow: AXUIElement, windowID: CGWindowID, pid: pid_t, app: String) {
+        guard let saved = savedFrame(windowID: windowID, pid: pid) else {
+            Self.log.info("restore: nothing recorded for app=\"\(app)\" wid=\(windowID) — leaving the window as is")
+            return
+        }
+        Self.log.info("restore: app=\"\(app)\" wid=\(windowID) → \(saved)")
+        setWindowFrame(axWindow, frame: saved)
+        savedFrames.removeValue(forKey: windowID)
+        // Restored to a free-floating size: it is no longer half of a pair.
+        linkedResizeController.removeWindow(windowID)
+    }
+
+    /// Minimize via the public `AXMinimized` attribute, falling back to pressing
+    /// the window's own minimize button. Both are one-shot AX calls — nothing
+    /// per-frame, so this stays clear of the AX-latency paths AnyDrag avoids.
+    ///
+    /// Windows without a minimize button (some panels and dialogs) simply can't
+    /// be minimized; that's logged and reported back as `false` so the caller
+    /// doesn't act as though the window went away.
+    private func minimizeWindow(_ axWindow: AXUIElement, app: String) -> Bool {
+        let err = AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        if err == .success {
+            Self.log.info("minimize: app=\"\(app)\" via AXMinimized")
+            return true
+        }
+        Self.log.warn("minimize: AXMinimized failed (err=\(err.rawValue)) for app=\"\(app)\" — trying its minimize button")
+
+        var buttonRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axWindow, kAXMinimizeButtonAttribute as CFString, &buttonRef) == .success,
+              let button = buttonRef, CFGetTypeID(button) == AXUIElementGetTypeID() else {
+            Self.log.warn("minimize: app=\"\(app)\" has no minimize button — window left as is")
+            return false
+        }
+        let pressErr = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+        if pressErr == .success {
+            Self.log.info("minimize: app=\"\(app)\" via minimize button")
+            return true
+        }
+        Self.log.warn("minimize: pressing the minimize button failed (err=\(pressErr.rawValue)) for app=\"\(app)\"")
+        return false
+    }
+
+    /// Commit one of the bento's window actions on the gesture's window. All
+    /// three are single AX calls made once at release — nothing per-frame.
+    private func performWindowAction(_ action: WindowAction,
+                                     target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
+        guard axGuardOrAbort("performWindowAction") else { return }
+        Analytics.trackTile(tile: action.analyticsKey, trigger: .middleDirection)
+        guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else {
+            Self.log.warn("window action \(action): findAXWindow returned nil for pid=\(target.pid) wid=\(target.windowID)")
+            return
+        }
+        Self.log.info("window action commit: app=\"\(target.app)\" wid=\(target.windowID) action=\(action)")
+        let done: Bool
+        switch action {
+        case .close:
+            // Press the window's own close button rather than anything
+            // stronger: the app then handles it exactly as a click on red —
+            // "save changes?" sheets included.
+            done = pressWindowButton(axWindow, kAXCloseButtonAttribute, name: "close", app: target.app)
+        case .minimize:
+            done = minimizeWindow(axWindow, app: target.app)
+        case .fullScreen:
+            done = toggleFullScreen(axWindow, app: target.app)
+        }
+        // A window that left its spot is no longer half of a linked pair.
+        if done {
+            linkedResizeController.removeWindow(target.windowID)
+        }
+    }
+
+    /// Toggle native full screen, the same thing the green button does. The
+    /// `AXFullScreen` attribute is what the system's own window menu uses;
+    /// apps that don't expose it settable get their green button pressed.
+    private func toggleFullScreen(_ axWindow: AXUIElement, app: String) -> Bool {
+        let attribute = "AXFullScreen" as CFString
+        var currentRef: CFTypeRef?
+        let isFullScreen = AXUIElementCopyAttributeValue(axWindow, attribute, &currentRef) == .success
+            && (currentRef as? Bool) == true
+        let err = AXUIElementSetAttributeValue(axWindow, attribute, (!isFullScreen) as CFBoolean)
+        if err == .success {
+            Self.log.info("full screen: app=\"\(app)\" \(isFullScreen ? "exit" : "enter") via AXFullScreen")
+            return true
+        }
+        Self.log.warn("full screen: AXFullScreen failed (err=\(err.rawValue)) for app=\"\(app)\" — trying its full-screen button")
+        return pressWindowButton(axWindow, kAXFullScreenButtonAttribute, name: "full-screen", app: app)
+    }
+
+    /// Press one of a window's title-bar buttons over accessibility.
+    private func pressWindowButton(_ axWindow: AXUIElement, _ attribute: String, name: String, app: String) -> Bool {
+        var buttonRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axWindow, attribute as CFString, &buttonRef) == .success,
+              let button = buttonRef, CFGetTypeID(button) == AXUIElementGetTypeID() else {
+            Self.log.warn("\(name): app=\"\(app)\" has no \(name) button — window left as is")
+            return false
+        }
+        let err = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+        if err == .success {
+            Self.log.info("\(name): app=\"\(app)\" via \(name) button")
+            return true
+        }
+        Self.log.warn("\(name): pressing the \(name) button failed (err=\(err.rawValue)) for app=\"\(app)\"")
+        return false
+    }
+
     private func setWindowFrame(_ window: AXUIElement, frame: CGRect) {
-        // Disable AXEnhancedUserInterface if enabled (Electron apps set this,
-        // which causes AX resizing to silently fail). Rectangle does the same.
+        withEnhancedUIDisabled(for: window) {
+            // Size → Position → Size (Rectangle's proven approach).
+            // macOS constrains window size to the current display, so we must:
+            // 1. Shrink first (so the window fits before moving)
+            // 2. Move to the target position
+            // 3. Set size again (in case the display changed and the constraint was wrong)
+            var position = frame.origin
+            var size = frame.size
+            if let sv = AXValueCreate(.cgSize, &size) {
+                AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
+            }
+            if let pv = AXValueCreate(.cgPoint, &position) {
+                AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pv)
+            }
+            if let sv = AXValueCreate(.cgSize, &size) {
+                AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
+            }
+        }
+    }
+
+    /// Electron apps may enable AXEnhancedUserInterface, which can make AX
+    /// position/size writes silently fail. Temporarily disable it around a
+    /// related group of frame mutations, matching Rectangle's behavior.
+    private func withEnhancedUIDisabled(for window: AXUIElement, _ mutation: () -> Void) {
         var pid: pid_t = 0
         AXUIElementGetPid(window, &pid)
         let appElement = AXUIElementCreateApplication(pid)
@@ -424,22 +2534,7 @@ final class DragEngine {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
         }
 
-        // Size → Position → Size (Rectangle's proven approach).
-        // macOS constrains window size to the current display, so we must:
-        // 1. Shrink first (so the window fits before moving)
-        // 2. Move to the target position
-        // 3. Set size again (in case the display changed and the constraint was wrong)
-        var position = frame.origin
-        var size = frame.size
-        if let sv = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
-        }
-        if let pv = AXValueCreate(.cgPoint, &position) {
-            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pv)
-        }
-        if let sv = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
-        }
+        mutation()
 
         if hadEnhancedUI {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
@@ -482,6 +2577,13 @@ final class DragEngine {
         )
     }
 
+    /// Look up an AX window by matching its top-left corner against the given
+    /// CG window frame (5-point tolerance). Returns nil when no AX window's
+    /// position matches — call sites that warn on nil should expect occasional
+    /// benign hits: the window may have closed between CG enumeration and the
+    /// AX lookup, or the app may report a different AX position than CG bounds
+    /// (some Electron / custom-drawn apps do this). A nil here means the
+    /// user-initiated action couldn't proceed — worth logging, not always a bug.
     private func findAXWindow(pid: pid_t, windowFrame: CGRect) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
@@ -545,11 +2647,299 @@ final class DragEngine {
         return results
     }
 
+    // MARK: - App blacklist
+
+    /// Replace the set of excluded-app bundle identifiers, then refresh the
+    /// derived pid set. Called on main from `Preferences.apply(to:)` at launch
+    /// and whenever the user edits the list.
+    func setBlacklistedBundleIDs(_ ids: Set<String>) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        blacklistedAppBundleIDs = ids
+        recomputeBlacklistedPids()
+    }
+
+    /// Recompute which running pids belong to excluded apps. Main thread only —
+    /// reads NSWorkspace and writes the lock. Costs nothing when the list is
+    /// empty, which keeps the feature free for users who never set it.
+    private func recomputeBlacklistedPids() {
+        guard !blacklistedAppBundleIDs.isEmpty else {
+            blacklistedPids.withLock { $0 = [] }
+            return
+        }
+        var pids = Set<pid_t>()
+        for app in NSWorkspace.shared.runningApplications {
+            if let bundleID = app.bundleIdentifier, blacklistedAppBundleIDs.contains(bundleID) {
+                pids.insert(app.processIdentifier)
+            }
+        }
+        blacklistedPids.withLock { $0 = pids }
+    }
+
+    /// True when the window-owning process belongs to an excluded app. A pure
+    /// set lookup on the tap thread — all Launch Services work happens on main
+    /// in `recomputeBlacklistedPids`. The match is ultimately by bundle id
+    /// (stable across renames / localization), resolved when the pid set is built.
+    private func isBlacklisted(pid: pid_t) -> Bool {
+        blacklistedPids.withLock { $0.contains(pid) }
+    }
+
+    // MARK: - Per-app title-bar Y offset
+
+    /// Replace the `bundleID → offset` override map, then refresh the derived
+    /// pid map. Called on main from `Preferences.apply(to:)` at launch and
+    /// whenever the user edits the list. Mirrors `setBlacklistedBundleIDs`.
+    func setPerAppTitleBarYOffsets(_ map: [String: CGFloat]) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        perAppTitleBarYOffsetsByBundleID = map
+        recomputePerAppTitleBarYOffsetPids()
+    }
+
+    /// Recompute which running pids have a custom offset. Main thread only —
+    /// reads NSWorkspace and writes the lock. Costs nothing when the map is
+    /// empty, keeping the feature free for users who never set it.
+    private func recomputePerAppTitleBarYOffsetPids() {
+        guard !perAppTitleBarYOffsetsByBundleID.isEmpty else {
+            perAppTitleBarYOffsetPids.withLock { $0 = [:] }
+            return
+        }
+        var map = [pid_t: CGFloat]()
+        for app in NSWorkspace.shared.runningApplications {
+            if let bundleID = app.bundleIdentifier,
+               let offset = perAppTitleBarYOffsetsByBundleID[bundleID] {
+                map[app.processIdentifier] = offset
+            }
+        }
+        perAppTitleBarYOffsetPids.withLock { $0 = map }
+    }
+
+    /// The effective title-bar Y offset for a window owned by `pid`: the app's
+    /// custom override if one is set, otherwise the global default. Resolved on
+    /// the tap thread via the same kind of lock-guarded lookup the blacklist
+    /// uses; reading `strategy.titleBarYOffset` matches the pre-existing
+    /// tap-thread read inside `handleMouseDown`.
+    private func effectiveTitleBarYOffset(forPid pid: pid_t) -> CGFloat {
+        if let custom = perAppTitleBarYOffsetPids.withLock({ $0[pid] }) {
+            return custom
+        }
+        return strategy.titleBarYOffset
+    }
+
+    // MARK: - Transparent Top Strip (issue #43)
+
+    /// What we found out about a window's top edge and what we did about it.
+    /// `summary` is diagnostics only — it goes to the log on every drag and,
+    /// when the debug dot is on, onto the screen next to the dot, so the next
+    /// window with this problem can be identified without a debugger.
+    ///
+    /// Deliberately not cached. Measured cost of the whole thing is 0.3–1.5 ms
+    /// median per drag (worst case a few ms when the other app is busy, bounded
+    /// by a 50 ms messaging timeout), against the 8 ms `TitleBarDragStrategy`
+    /// already waits before it synthesizes the click — so a cache would save
+    /// nothing measurable. An earlier version did cache, keyed by pid, and a
+    /// single failed measurement then stuck to every later drag of that app.
+    struct VisibleTopProbe {
+        let inset: CGFloat
+        let summary: String
+        /// False only when the window definitely has no standard window
+        /// buttons. Defaults to true so anything we could not measure keeps the
+        /// existing activate-then-raise behaviour.
+        var hasTitleBar: Bool = true
+        static let none = VisibleTopProbe(inset: 0, summary: "—")
+    }
+
+    /// A hit that comes back within this many points of the window's own height
+    /// counts as the window-sized wrapper, not real content.
+    private static let visibleTopInsetTolerance: CGFloat = 20
+    /// Below this, the measured inset is ordinary window chrome — leave the aim
+    /// point alone rather than changing behavior for normal apps.
+    private static let visibleTopInsetMinimum: CGFloat = 24
+
+    /// How far below the window rect's top edge the window's *visible* content
+    /// starts, for a window that has no title bar of its own.
+    ///
+    /// `TitleBarDragStrategy` aims its synthesized click at the top of the
+    /// window rect, which on a normal window is the title bar. A window with no
+    /// title bar can be much bigger than what you can see: the Codex "ask
+    /// anything" popup reserves ~180 pt of transparent space above its input
+    /// bar for a panel that expands upward. The rect's top edge is empty there,
+    /// the click lands on nothing, and the window server never starts a drag
+    /// (issue #43).
+    ///
+    /// **Which windows this applies to.** Only ones with no standard window
+    /// buttons. A window that has a close button has a real title bar, which is
+    /// draggable already, so it is left alone. That is the whole test, and it
+    /// is a structural fact about the window rather than a guess: measured
+    /// across Chrome, Ghostty, Claude, WeChat and the Codex *main* window, all
+    /// report a close button; only the Codex popup does not.
+    ///
+    /// Two earlier attempts tried to detect the transparent strip instead, and
+    /// both are worth not repeating:
+    ///
+    /// - Asking the app what lives at the aim row. WeChat and the Codex popup
+    ///   both answer with a window-sized `AXGroup`, so the rule that fixed the
+    ///   popup also pushed WeChat's click below its title bar.
+    /// - Asking the system-wide element who would receive a click at the aim
+    ///   point, which should follow real window shape. Its answer is not
+    ///   stable: for the same popup sitting over the same window it answered
+    ///   with the window behind on one run and with the popup itself on
+    ///   another.
+    ///
+    /// **Finding the real top.** The cursor is already on the part of the
+    /// window the user can see, so walk up from the element under it and keep
+    /// the outermost ancestor still smaller than the window. That is the
+    /// visible container, and its own top edge is the answer, exact — measured
+    /// at 178 pt for the popup, the same wherever the window sat.
+    ///
+    /// Returns a zero inset for anything we can't measure, which keeps the
+    /// normal aim point.
+    private func visibleTopInset(pid: pid_t, windowFrame: CGRect,
+                                 aimX: CGFloat, cursorY: CGFloat) -> VisibleTopProbe {
+        guard pid != getpid() else { return .none }
+        guard axGuardOrAbort("visibleTopInset") else { return .none }
+
+        let app = AXUIElementCreateApplication(pid)
+        // `AXUIElementSetMessagingTimeout` binds one element object; elements
+        // handed back by it inherit nothing, so every element we obtain gets
+        // its own. Without this a hung app blocks the event-tap thread for the
+        // process default (measured 1.5 s on macOS 26.6.1) per call, and the
+        // parent walk alone is up to 64 calls.
+        AXUIElementSetMessagingTimeout(app, Self.axProbeTimeout)
+        func bounded(_ element: AXUIElement) -> AXUIElement {
+            AXUIElementSetMessagingTimeout(element, Self.axProbeTimeout)
+            return element
+        }
+
+        func attribute(_ element: AXUIElement, _ name: String) -> AXValue? {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, name as CFString, &ref) == .success,
+                  let value = ref, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+            return (value as! AXValue)
+        }
+        func frame(_ element: AXUIElement) -> CGRect? {
+            guard let positionValue = attribute(element, kAXPositionAttribute),
+                  let sizeValue = attribute(element, kAXSizeAttribute) else { return nil }
+            var origin = CGPoint.zero, size = CGSize.zero
+            AXValueGetValue(positionValue, .cgPoint, &origin)
+            AXValueGetValue(sizeValue, .cgSize, &size)
+            return CGRect(origin: origin, size: size)
+        }
+        func role(_ element: AXUIElement) -> String {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &ref) == .success
+            else { return "?" }
+            return (ref as? String) ?? "?"
+        }
+        func parent(_ element: AXUIElement) -> AXUIElement? {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &ref) == .success,
+                  let value = ref else { return nil }
+            return bounded(value as! AXUIElement)
+        }
+        func children(_ element: AXUIElement) -> [AXUIElement] {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref) == .success,
+                  let list = ref as? [AXUIElement] else { return [] }
+            return list.map(bounded)
+        }
+        func hasCloseButton(_ window: AXUIElement) -> Bool {
+            var ref: CFTypeRef?
+            return AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &ref) == .success
+                && ref != nil
+        }
+        /// Smaller than the window by a clear margin — a real control rather
+        /// than one of the wrappers that span the whole rect.
+        func isControl(_ rect: CGRect) -> Bool {
+            rect.height < windowFrame.height - Self.visibleTopInsetTolerance && rect.width > 1
+        }
+
+        // Our own window lookup rather than `findAXWindow`, so every element
+        // involved carries the short timeout. (`findAXWindow` is shared with
+        // the tile and maximize paths, which need it to succeed on slow apps.)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = (windowsRef as? [AXUIElement])?.map(bounded),
+              let axWindow = windows.first(where: { window in
+                  guard let rect = frame(window) else { return false }
+                  return abs(rect.minX - windowFrame.minX) < 5 && abs(rect.minY - windowFrame.minY) < 5
+              })
+        else {
+            return VisibleTopProbe(inset: 0, summary: "window not in the app's window list, aim at top")
+        }
+
+        // 1. A window with standard buttons has a title bar; aim at it as usual.
+        guard !hasCloseButton(axWindow) else {
+            return VisibleTopProbe(inset: 0, summary: "has a title bar, aim at top")
+        }
+        // Missing buttons alone is not enough: a `.titled`-but-not-`.closable`
+        // window and a standalone `NSAlert` also report none, and both put real
+        // controls right under the window — aiming at those would land the
+        // synthesized click on a button, and a short drag would fire it. What
+        // separates them is the shape of the tree: an AppKit window's controls
+        // hang directly off the window, while the windows this is for wrap
+        // everything in one box the size of the whole window (Chromium's web
+        // content host). Require that wrapper.
+        let topLevel = children(axWindow)
+        guard let wrapper = topLevel.first, let wrapperFrame = frame(wrapper),
+              !isControl(wrapperFrame)
+        else {
+            return VisibleTopProbe(inset: 0, summary: "no title bar, but controls sit directly on it — aim at top",
+                                   hasTitleBar: false)
+        }
+        func panel(_ summary: String, inset: CGFloat = 0) -> VisibleTopProbe {
+            VisibleTopProbe(inset: inset, summary: summary, hasTitleBar: false)
+        }
+
+        // 2. Find where the visible part starts. The cursor is on it already.
+        var cursorElement: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(app, Float(aimX), Float(min(cursorY, windowFrame.maxY - 1)),
+                                               &cursorElement) == .success,
+              let cursorElement
+        else {
+            return panel("no title bar, but nothing under the cursor")
+        }
+        var visible: CGRect?
+        var visibleRole = "?"
+        var node: AXUIElement? = bounded(cursorElement)
+        var depth = 0
+        while let current = node, depth < 16 {
+            if role(current) == kAXWindowRole as String { break }
+            if let rect = frame(current), isControl(rect) { visible = rect; visibleRole = role(current) }
+            node = parent(current)
+            depth += 1
+        }
+        guard let visible else {
+            return panel("no title bar, but no visible part found")
+        }
+        // The hit test is routed by the window server and can answer with
+        // something that is not in this window at all — measured: with the
+        // Codex popup on screen it returned the app's own menu bar, 1029 pt
+        // above the window. Anything outside the window is not an answer to
+        // the question we asked.
+        guard windowFrame.insetBy(dx: -2, dy: -2).contains(visible) else {
+            return panel("no title bar, but the answer was outside the window")
+        }
+        let inset = visible.minY - windowFrame.minY
+        // Content starting at (or just below) the window's own top edge means
+        // there is no transparent margin to skip.
+        guard inset >= Self.visibleTopInsetMinimum else {
+            return panel("no title bar; visible part starts \(Int(inset))pt down, aim at top")
+        }
+        return panel("no title bar; visible part (\(visibleRole) \(Int(visible.width))x\(Int(visible.height))) starts \(Int(inset))pt down",
+                     inset: inset)
+    }
+
+    /// Every accessibility call made while measuring gets this timeout, so a
+    /// hung or slow app cannot stall the event-tap thread.
+    private static let axProbeTimeout: Float = 0.05
+
     // MARK: - Window Detection
 
     /// Finds the topmost normal window at the given screen point using CGWindowListCopyWindowInfo.
     /// Returns nil if no window is found. Skips the Dock and non-normal windows (layer != 0).
-    private func windowUnderCursor(at point: CGPoint) -> (pid: pid_t, windowID: CGWindowID, frame: CGRect)? {
+    /// `app` is the CG-reported process owner name (e.g. "Google Chrome", "Finder") — extracted
+    /// here so engagement-point logs can include it without a separate NSRunningApplication
+    /// lookup on the tap-callback thread.
+    private func windowUnderCursor(at point: CGPoint) -> (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? {
         guard let windowList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -578,17 +2968,76 @@ final class DragEngine {
             )
 
             if bounds.contains(point) {
-                return (pid, windowID, bounds)
+                // Excluded app: treat its window as if it weren't there so the
+                // gesture never engages and the event passes through. We do NOT
+                // fall through to the window behind it — reaching past a
+                // blacklisted window to move a hidden one would be surprising.
+                if isBlacklisted(pid: pid) {
+                    if shouldLogDiagMiss() {
+                        Self.log.debug("blacklisted app skipped: app=\"\(ownerName)\" pid=\(pid)")
+                    }
+                    return nil
+                }
+                return (pid, windowID, bounds, ownerName)
             }
         }
         return nil
+    }
+
+    // MARK: - Diagnostics
+
+    /// Rate-limit anchor for the "miss" diagnostic logs. Returns true at most
+    /// once per second across the modifier-miss and no-window-miss paths
+    /// combined — they share one bucket so a stream of one can't drown out
+    /// the other indefinitely, and the user never gets a wall of debug lines
+    /// from rapid clicking.
+    private func shouldLogDiagMiss() -> Bool {
+        let now = CFAbsoluteTimeGetCurrent()
+        return cbState.withLock { state in
+            if now - state.lastDiagMissAt >= 1.0 {
+                state.lastDiagMissAt = now
+                return true
+            }
+            return false
+        }
+    }
+
+    /// Log when a click arrived with some modifier held but it didn't match
+    /// the configured combination. Silent for plain (no-modifier) clicks so
+    /// every button press doesn't enter this path.
+    private func logModifierMiss(flags: CGEventFlags, button: String) {
+        let observed = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
+        guard !observed.isEmpty else { return }
+        guard shouldLogDiagMiss() else { return }
+        Self.log.debug("modifier miss [\(button)Down]: observed=\(Self.describeFlags(observed)) target=\(self.modifiers.symbol)")
+    }
+
+    /// Log when the configured gesture matched but `windowUnderCursor` found
+    /// nothing — diagnoses "AnyDrag does nothing in app X" reports where
+    /// CGWindowListCopyWindowInfo can't see the target window's layer.
+    private func logNoWindowMiss(button: String, at point: CGPoint) {
+        guard shouldLogDiagMiss() else { return }
+        Self.log.debug("no window under cursor [\(button)Down] at (\(Int(point.x)), \(Int(point.y)))")
+    }
+
+    /// Render a CGEventFlags modifier set as the same glyph string the UI
+    /// shows for `ModifierCombination` (e.g. "⌃⌥"), so log lines line up
+    /// with what the user sees in Settings.
+    private static func describeFlags(_ flags: CGEventFlags) -> String {
+        var combo: ModifierCombination = []
+        if flags.contains(.maskCommand)                  { combo.insert(.command) }
+        if flags.contains(.maskShift)                    { combo.insert(.shift) }
+        if flags.contains(.maskAlternate)                { combo.insert(.option) }
+        if flags.contains(.maskControl)                  { combo.insert(.control) }
+        if flags.contains(ModifierCombination.fnEventFlag) { combo.insert(.fn) }
+        return combo.symbol
     }
 }
 
 // MARK: - C-level Event Tap Callback
 
 private let eventTapCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
-    guard let userInfo else { return Unmanaged.passRetained(event) }
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
     let engine = Unmanaged<DragEngine>.fromOpaque(userInfo).takeUnretainedValue()
     return engine.handleEvent(proxy: proxy, type: type, event: event)
 }

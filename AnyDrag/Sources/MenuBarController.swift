@@ -1,22 +1,55 @@
 import Cocoa
-import ServiceManagement
 
 final class MenuBarController: NSObject {
+
+    private static let log = FileLog("MenuBarController")
+
+    private static let normalIconSymbol = "arrow.up.and.down.and.arrow.left.and.right"
 
     private var statusItem: NSStatusItem!
     private let dragEngine: DragEngine
     private let updateController: UpdateController
+    private let preferencesWindowController: PreferencesWindowController
 
-    private let enabledKey = "AnyDragEnabled"
-    private let modifierKey = "AnyDragModifier"
-    private let launchAtLoginKey = "AnyDragLaunchAtLogin"
-
-    init(dragEngine: DragEngine, updateController: UpdateController) {
+    /// The Settings window is owned by the AppDelegate (it has to outlive the
+    /// status item: in `AppIconMode.dock` there is no status item at all).
+    init(dragEngine: DragEngine,
+         updateController: UpdateController,
+         preferencesWindowController: PreferencesWindowController) {
         self.dragEngine = dragEngine
         self.updateController = updateController
+        self.preferencesWindowController = preferencesWindowController
         super.init()
         setupStatusItem()
-        loadPreferences()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(languageChanged(_:)),
+            name: .anyDragLanguageChanged,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        // Dropping the controller (user switched to Dock-only) must take the
+        // icon with it; NSStatusItem is not released by the status bar on its
+        // own.
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+    }
+
+    /// Force the icon back on screen. macOS persists "Allow in the Menu Bar"
+    /// off-state per item (and reportedly does not always restore it — the
+    /// exact trap in issue #52); when the user explicitly picks a mode that
+    /// includes the menu bar we override that stale state.
+    func forceVisible() {
+        statusItem.isVisible = true
+    }
+
+    @objc private func languageChanged(_ note: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.statusItem.menu = self.buildMenu()
+        }
     }
 
     // MARK: - Setup
@@ -25,7 +58,7 @@ final class MenuBarController: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "AnyDrag")
+            button.image = NSImage(systemSymbolName: Self.normalIconSymbol, accessibilityDescription: "AnyDrag")
         }
 
         statusItem.menu = buildMenu()
@@ -43,52 +76,37 @@ final class MenuBarController: NSObject {
         menu.addItem(.separator())
 
         // Usage tips (placeholder — updated dynamically in menuWillOpen)
-        for key in ["tip.drag", "tip.maximize", "tip.tiling"] {
+        for (i, _) in tipKeys.enumerated() {
             let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
             item.isEnabled = false
-            item.tag = 500 + ["tip.drag", "tip.maximize", "tip.tiling"].firstIndex(of: key)!
+            item.tag = 500 + i
             menu.addItem(item)
         }
 
         menu.addItem(.separator())
 
-        // Enabled toggle
-        let enabledItem = NSMenuItem(title: NSLocalizedString("Enabled", comment: ""), action: #selector(toggleEnabled(_:)), keyEquivalent: "")
-        enabledItem.target = self
-        enabledItem.tag = 100
-        menu.addItem(enabledItem)
-
-        menu.addItem(.separator())
-
-        // Modifier key submenu
-        let modifierItem = NSMenuItem(title: NSLocalizedString("Modifier Key", comment: ""), action: nil, keyEquivalent: "")
-        let modifierSubmenu = NSMenu()
-
-        for (index, mod) in ModifierKey.allCases.enumerated() {
-            let item = NSMenuItem(title: mod.displayName, action: #selector(selectModifier(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = 200 + index
-            item.representedObject = mod.rawValue
-            modifierSubmenu.addItem(item)
-        }
-
-        modifierItem.submenu = modifierSubmenu
-        modifierItem.tag = 400
-        menu.addItem(modifierItem)
-
-        menu.addItem(.separator())
-
-        // Launch at Login
-        let loginItem = NSMenuItem(title: NSLocalizedString("Launch at Login", comment: ""), action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
-        loginItem.target = self
-        loginItem.tag = 300
-        menu.addItem(loginItem)
+        // Settings…
+        let settingsItem = NSMenuItem(title: NSLocalizedString("Settings…", comment: ""), action: #selector(openSettings(_:)), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         // Check for Updates
         let updateItem = NSMenuItem(title: NSLocalizedString("Check for Updates…", comment: ""), action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         updateItem.target = self
         updateItem.tag = 600
         menu.addItem(updateItem)
+
+        menu.addItem(.separator())
+
+        // Feedback
+        let feedbackItem = NSMenuItem(title: NSLocalizedString("Feedback…", comment: ""), action: #selector(openFeedback(_:)), keyEquivalent: "")
+        feedbackItem.target = self
+        menu.addItem(feedbackItem)
+
+        // More Apps by Author → xueshi.dev
+        let moreAppsItem = NSMenuItem(title: NSLocalizedString("More Apps by Author…", comment: ""), action: #selector(openAuthorWebsite(_:)), keyEquivalent: "")
+        moreAppsItem.target = self
+        menu.addItem(moreAppsItem)
 
         menu.addItem(.separator())
 
@@ -101,57 +119,34 @@ final class MenuBarController: NSObject {
         return menu
     }
 
-    // MARK: - Preferences
-
-    private func loadPreferences() {
-        let defaults = UserDefaults.standard
-
-        // Enabled (default true)
-        if defaults.object(forKey: enabledKey) == nil {
-            defaults.set(true, forKey: enabledKey)
-        }
-        dragEngine.isEnabled = defaults.bool(forKey: enabledKey)
-
-        // Modifier (default option)
-        if let savedMod = defaults.string(forKey: modifierKey),
-           let mod = ModifierKey(rawValue: savedMod) {
-            dragEngine.modifierKey = mod
-        } else {
-            defaults.set(ModifierKey.option.rawValue, forKey: modifierKey)
-            dragEngine.modifierKey = .option
-        }
-    }
+    // Tip key, the feature toggle that gates it, and the modifier symbol to
+    // substitute into its "%@" placeholder. Most tips use the bare base
+    // modifier; left-click resize uses its secondary modifier alone.
+    private let tipKeys: [(key: String, gate: (DragEngine) -> Bool, symbol: (DragEngine) -> String)] = [
+        ("tip.drag",       { $0.dragEnabled },       { $0.modifiers.symbol }),
+        ("tip.maximize",   { $0.maximizeEnabled },   { $0.modifiers.symbol }),
+        ("tip.tiling",     { $0.tilingEnabled },     { $0.modifiers.symbol }),
+        ("tip.leftResize", { $0.resizeTrigger == .leftClick }, { $0.leftResizeModifier.symbol }),
+    ]
 
     // MARK: - Actions
 
-    @objc private func toggleEnabled(_ sender: NSMenuItem) {
-        let newValue = !dragEngine.isEnabled
-        dragEngine.isEnabled = newValue
-        UserDefaults.standard.set(newValue, forKey: enabledKey)
+    @objc private func openSettings(_ sender: NSMenuItem) {
+        preferencesWindowController.show()
     }
 
-    @objc private func selectModifier(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let mod = ModifierKey(rawValue: rawValue) else { return }
-        dragEngine.modifierKey = mod
-        UserDefaults.standard.set(mod.rawValue, forKey: modifierKey)
-    }
-
-    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
-        let service = SMAppService.mainApp
-        do {
-            if service.status == .enabled {
-                try service.unregister()
-            } else {
-                try service.register()
-            }
-        } catch {
-            NSLog("AnyDrag: Failed to toggle launch at login: \(error)")
-        }
+    @objc private func openFeedback(_ sender: NSMenuItem) {
+        guard let url = URL(string: "https://xueshasoho.feishu.cn/share/base/form/shrcnZK4KXsAg0w80ERWkf1WoXc") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func checkForUpdates(_ sender: NSMenuItem) {
         updateController.checkForUpdates(sender)
+    }
+
+    @objc private func openAuthorWebsite(_ sender: NSMenuItem) {
+        guard let url = URL(string: "https://xueshi.dev") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func quitApp(_ sender: NSMenuItem) {
@@ -164,33 +159,17 @@ final class MenuBarController: NSObject {
 extension MenuBarController: NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
-        // Update usage tips with current modifier key
-        let sym = dragEngine.modifierKey.symbol
-        let tipKeys = ["tip.drag", "tip.maximize", "tip.tiling"]
-        for (i, key) in tipKeys.enumerated() {
-            if let item = menu.item(withTag: 500 + i) {
-                item.title = String(format: NSLocalizedString(key, comment: ""), sym)
+        // Update usage tips with current modifier symbol; hide tips whose
+        // feature is currently disabled, and hide all tips when no modifier is
+        // selected (otherwise we'd render "Hold — and drag" with a placeholder).
+        let hasModifier = !dragEngine.modifiers.isEmpty
+        for (i, entry) in tipKeys.enumerated() {
+            guard let item = menu.item(withTag: 500 + i) else { continue }
+            let visible = hasModifier && entry.gate(dragEngine)
+            item.isHidden = !visible
+            if visible {
+                item.title = String(format: NSLocalizedString(entry.key, comment: ""), entry.symbol(dragEngine))
             }
-        }
-
-        // Update checkmarks
-        if let enabledItem = menu.item(withTag: 100) {
-            enabledItem.state = dragEngine.isEnabled ? .on : .off
-        }
-
-        // Update modifier selection
-        if let modifierItem = menu.item(withTag: 400),
-           let submenu = modifierItem.submenu {
-            for item in submenu.items {
-                if let rawValue = item.representedObject as? String {
-                    item.state = (rawValue == dragEngine.modifierKey.rawValue) ? .on : .off
-                }
-            }
-        }
-
-        // Update launch at login
-        if let loginItem = menu.item(withTag: 300) {
-            loginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
         }
 
         // Update check-for-updates availability

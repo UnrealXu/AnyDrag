@@ -23,17 +23,78 @@ import ApplicationServices
 final class TitleBarDragStrategy {
 
     private(set) var isActive = false
+    private(set) var didDrag = false
     private var yOffset: CGFloat = 0
     private var dragPoint: CGPoint = .zero
     private var needsInitialMouseDown = false
+    private var rewriteToLeftButton = false
 
-    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent) -> Unmanaged<CGEvent>? {
+    /// Modifier flags stripped from injected/rewritten title-bar events.
+    ///
+    /// Only Control is stripped: AppKit converts Control+leftMouseDown to a
+    /// "secondary click" (Finder pops the toolbar context menu, etc.) at the
+    /// NSResponder layer, breaking the title-bar drag.
+    ///
+    /// Option was tried briefly but does NOT achieve full suppression of the
+    /// macOS "Hold option key while dragging windows to tile" feature: macOS
+    /// reads the physical Option key state independently of the event flags,
+    /// so stripping the flag only hides the overlay while the snap-on-release
+    /// still fires. Half-suppression is worse than passing through, so Option
+    /// is left intact. To fully suppress, we'd have to synthesize an Option
+    /// keyUp into the system before the drag (with side effects on other
+    /// apps' keyboard listeners) — not worth it.
+    /// Also read by the engine so `TrailingFlagScrubber` can repeat the same
+    /// scrub at the tail of the tap chain, after any downstream tool has
+    /// re-asserted the flags we cleared here.
+    static let modifierFlagsToStrip: CGEventFlags = [.maskControl]
+
+    private let debugDot = DebugDotOverlay()
+
+    /// Vertical offset from the window's top edge to the synthesized title-bar
+    /// click. The default works for stock AppKit windows (and is one point
+    /// larger on macOS 27 — see `Preferences.defaultTitleBarYOffset`); some
+    /// custom-rendered apps (e.g. WeChat) have non-draggable strips at the very
+    /// top and need a larger offset. Tunable from Settings → General →
+    /// Diagnostics. The engine overwrites this from UserDefaults at launch.
+    var titleBarYOffset: CGFloat = Preferences.defaultTitleBarYOffset
+
+    /// Distance below the measured top of a window's visible content to aim.
+    /// Stays 3 pt on every macOS version, unlike the title-bar default: this
+    /// one aims into a window's own content box, well clear of the frame edge
+    /// where the window server's title-bar/resize hit regions live, so the
+    /// macOS 27 change behind issue #51 does not reach it.
+    private static let measuredAimOffset: CGFloat = 3
+
+    /// When true, every drag flashes a marker at the synthesized click point.
+    /// Diagnostics aid; off by default.
+    var showDebugDot: Bool = false
+
+    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil, visibleTopInset: CGFloat = 0, activateApp: Bool = true, debugCaption: String? = nil) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
-        // Drag point: cursor's X (on an exposed part of the window), Y at the very top of
-        // the title bar (3px from window top edge). This narrow strip is always draggable,
-        // even in apps with custom title bars, tabs, or toolbars at the top.
-        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + 3)
+        // Drag point: cursor's X (on an exposed part of the window), Y near the top of
+        // the title bar. The default (3 pt, 4 on macOS 27) is a narrow strip that's
+        // always draggable on stock AppKit windows; the offset is tunable for apps
+        // with custom top regions.
+        // The engine passes a per-app override when one is set; otherwise we fall back
+        // to the global `self.titleBarYOffset`.
+        // `visibleTopInset` is normally 0. It is non-zero only for windows whose
+        // rect is taller than what you can see — an Electron popup reserving a
+        // transparent strip for a panel that expands upward (issue #43). There
+        // the rect's top edge is empty space, so the click has to start below
+        // it, at the top of the visible content. See `DragEngine.visibleTopInset`.
+        // The tunable offsets exist to clear a non-draggable strip at the top
+        // of a particular app's *title bar*; they mean nothing once we are
+        // aiming at a measured content box, so the measured case uses the plain
+        // default instead of adding a user value on top of it.
+        let effectiveOffset = visibleTopInset > 0 ? Self.measuredAimOffset
+                                                  : (titleBarYOffset ?? self.titleBarYOffset)
+        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + visibleTopInset + effectiveOffset)
+
+        // Diagnostic: show where we're targeting the synthesized click.
+        if showDebugDot {
+            debugDot.flash(at: dragPoint, caption: debugCaption)
+        }
 
         // Only Y needs an offset — X stays at the cursor position
         yOffset = dragPoint.y - cursorPos.y
@@ -41,58 +102,111 @@ final class TitleBarDragStrategy {
         // Activate the target app and raise the window to front.
         // We suppress the mouseDown and defer the actual click to the first mouseDragged,
         // giving the window server ~8ms to finish reordering before the click arrives.
-        let appElement = AXUIElementCreateApplication(pid)
-        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        if pid == getpid() {
+            // Same-process AX raise crashes here: AXUIElementPerformAction(kAXRaiseAction)
+            // is dispatched in-process to -[NSWindow makeKeyAndOrderFront:], which is
+            // main-thread-only, but this strategy runs on the event-tap thread. Use
+            // the NSWindow APIs directly on main instead.
+            let targetNumber = Int(windowID)
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                // NSWindow.windowNumber is Int and can be negative for offscreen
+                // windows; compare on the Int side to avoid the unsigned trap.
+                if let window = NSApp.windows.first(where: { $0.windowNumber == targetNumber }) {
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
+        } else {
+            // Activating the app is what makes the synthesized title-bar click
+            // land on the window we mean rather than on whatever covers it, and
+            // it matches what dragging a real title bar does.
+            //
+            // Skipped for a window with no title bar. Those are floating panels
+            // — the Codex "ask anything" popup, say — which macOS does not
+            // activate their owning app for when you click them, and which sit
+            // above other windows anyway, so the click reaches them without
+            // help. Forcing the app frontmost there pulls the app's *main*
+            // window out from behind whatever the user had in front, which is
+            // the complaint in issue #43. The window is still raised below.
+            if activateApp {
+                let appElement = AXUIElementCreateApplication(pid)
+                AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            }
 
-        if let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) {
-            let raiseResult = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-            if raiseResult != .success {
-                // Fallback for apps that don't support kAXRaiseAction (e.g. some Electron apps)
-                AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+            if let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) {
+                let raiseResult = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+                if raiseResult != .success {
+                    // Fallback for apps that don't support kAXRaiseAction (e.g. some Electron apps)
+                    AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+                }
             }
         }
 
         isActive = true
+        didDrag = false
         needsInitialMouseDown = true
+        self.rewriteToLeftButton = rewriteToLeftButton
         return nil  // suppress — the mouseDown will be sent on first drag
     }
 
     func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        didDrag = true
+        event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         if needsInitialMouseDown {
             needsInitialMouseDown = false
             // Convert this mouseDragged into a mouseDown at the title bar.
             // By now the window is frontmost (activation happened ~8ms ago).
             event.type = .leftMouseDown
+            if rewriteToLeftButton {
+                event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
+            }
             event.location = dragPoint
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
+        }
+
+        if rewriteToLeftButton {
+            event.type = .leftMouseDragged
+            event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
         }
 
         // Shift Y so the window server sees movement relative to the title bar click.
         // X is unchanged (xOffset = 0), so horizontal movement is 1:1 with the cursor.
         let pos = event.location
         event.location = CGPoint(x: pos.x, y: pos.y + yOffset)
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 
     func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
         if needsInitialMouseDown {
-            // Released before any drag — was a modifier+click, not a drag.
+            // Released before any drag — was a click, not a drag.
+            // For middle-button entry we suppress the up so the engine can replay
+            // a synthesized middle-click at the original location (preserving
+            // browser/IDE middle-click behavior). Left-button keeps original behavior.
+            let suppressForReplay = rewriteToLeftButton
             needsInitialMouseDown = false
             isActive = false
-            return Unmanaged.passRetained(event)
+            return suppressForReplay ? nil : Unmanaged.passUnretained(event)
         }
 
+        if rewriteToLeftButton {
+            event.type = .leftMouseUp
+            event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
+        }
+
+        event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         let pos = event.location
         event.location = CGPoint(x: pos.x, y: pos.y + yOffset)
         isActive = false
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 
     func reset() {
         isActive = false
+        didDrag = false
         yOffset = 0
         dragPoint = .zero
         needsInitialMouseDown = false
+        rewriteToLeftButton = false
     }
 
     // MARK: - AX Window Lookup
