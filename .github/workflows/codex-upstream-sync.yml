@@ -25,7 +25,7 @@ jobs:
       - name: Disable inherited build workflows and cancel extra runs
         run: |
           set -euo pipefail
-          gh api --paginate "repos/$TARGET/actions/workflows?per_page=100" --jq '.workflows[] | select(.path != ".github/workflows/codex-upstream-sync.yml") | .id' | while read -r id; do
+          gh api --paginate "repos/$TARGET/actions/workflows?per_page=100" --jq '.workflows[] | select(.state == "active" and .path != ".github/workflows/codex-upstream-sync.yml") | .id' | while read -r id; do
             gh api --method PUT "repos/$TARGET/actions/workflows/$id/disable"
           done
           for status in queued in_progress; do
