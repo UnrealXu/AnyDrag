@@ -3,8 +3,12 @@ on:
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/codex-upstream-sync.yml'
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: sync-upstream
   cancel-in-progress: false
@@ -13,12 +17,23 @@ jobs:
     if: github.repository_owner == 'UnrealXu'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TARGET: ${{ github.repository }}
+      TARGET_BRANCH: 'main'
     steps:
+      - name: Disable inherited build workflows and cancel extra runs
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$TARGET/actions/workflows?per_page=100" --jq '.workflows[] | select(.path != ".github/workflows/codex-upstream-sync.yml") | .id' | while read -r id; do
+            gh api --method PUT "repos/$TARGET/actions/workflows/$id/disable"
+          done
+          for status in queued in_progress; do
+            gh api --paginate "repos/$TARGET/actions/runs?status=$status&per_page=100" --jq '.workflow_runs[] | select(.name != "Sync upstream") | .id' | while read -r id; do
+              gh api --method POST "repos/$TARGET/actions/runs/$id/cancel" || true
+            done
+          done
       - name: Merge latest upstream default branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET: ${{ github.repository }}
-          TARGET_BRANCH: 'main'
         run: |
           set -euo pipefail
           metadata=$(gh api "repos/$TARGET")
