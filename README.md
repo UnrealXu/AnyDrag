@@ -61,7 +61,7 @@ Modifier + right-click opens a panel to quickly arrange the window:
 
 ### ↔️ Window Resize
 
-Resize a window from its **nearest corner** without aiming for the tiny corner handle. It's opt-in, with two trigger modes:
+Resize a window from its **nearest corner** without aiming for the tiny corner handle. Right-drag is on by default; you can switch the trigger or turn it off in Settings:
 
 - **Right-drag** — hold the primary modifier and right-drag.
 - **Left-drag** — hold a dedicated *Left-drag Resize Modifier* and left-drag.
