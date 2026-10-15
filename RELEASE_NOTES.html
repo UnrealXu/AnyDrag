@@ -1,3 +1,15 @@
+<h3>What's New in 26.10.118</h3>
+<ul>
+  <li><b>Windows stay sharp after you drag them</b> — After moving a window with AnyDrag, its contents could look slightly blurry until you dragged it once more by its real title bar. The mouse reports positions in fractions of a point, and AnyDrag passed those fractions on, so a window could come to rest between two pixels. AnyDrag now rounds every position in a drag to whole points, so the window always lands exactly on the pixel grid. It was easiest to notice on external displays at 1× scaling. Contributed by @jnchman (<a href="https://github.com/XueshiQiao/AnyDrag/pull/58">#58</a>).</li>
+  <li><b>New option: always resize from the bottom-right corner</b> — Turn on <b>Settings → Window Resize → Always resize from bottom-right</b> and a resize gesture always moves the bottom-right corner while the top-left corner stays put, no matter where in the window you start dragging. It's off by default, so resizing from the nearest corner works exactly as before. Contributed by @jnchman (<a href="https://github.com/XueshiQiao/AnyDrag/pull/58">#58</a>).</li>
+</ul>
+
+<h3>26.10.118 更新内容</h3>
+<ul>
+  <li><b>拖完窗口不再发虚</b> — 用 AnyDrag 移动窗口后，窗口里的内容有时会微微发虚，要用真正的标题栏再拖一次才会恢复清晰。原因是鼠标报告的位置带小数，AnyDrag 原样传了过去，窗口就可能停在两个像素之间。现在拖动过程中的每个位置都会四舍五入到整数点，窗口一定落在像素网格上。外接显示器用 1 倍缩放时最明显。感谢 @jnchman 贡献（<a href="https://github.com/XueshiQiao/AnyDrag/pull/58">#58</a>）。</li>
+  <li><b>新选项：始终从右下角缩放</b> — 打开<b>「设置 → 窗口缩放 → 始终从右下角缩放」</b>后，不管从窗口哪个位置开始拖，缩放时都是右下角跟着鼠标走，左上角保持不动。这个选项默认关闭，不打开的话还是和以前一样，从离鼠标最近的角缩放。感谢 @jnchman 贡献（<a href="https://github.com/XueshiQiao/AnyDrag/pull/58">#58</a>）。</li>
+</ul>
+
 <h3>What's New in 26.10.117</h3>
 <ul>
   <li><b>Show the app icon in the menu bar, the Dock, or both</b> — New in <b>Settings → General → Show App Icon In</b>: <b>Menu Bar</b> (the default, exactly as before), <b>Dock</b>, or <b>Menu Bar and Dock</b>. With the Dock icon on, clicking it — or opening AnyDrag a second time — brings up the Settings window, so hiding the menu bar icon can never lock you out of the app. Switching takes effect immediately, no relaunch needed. Thanks to @hexeric for the request (<a href="https://github.com/XueshiQiao/AnyDrag/issues/52">#52</a>).</li>
