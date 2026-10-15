@@ -86,7 +86,7 @@ jobs:
             echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
             exit 1
           elif [ "$merge_rc" -ne 0 ]; then
-            echo "::error::Upstream merge failed after retries; see log above." >&2
+            echo "::error::Upstream merge failed after retries. head=[$source_sha] base=[$TARGET_BRANCH] upstream=[$upstream:$source_branch]. Last API error was: $merge_out" >&2
             exit 1
           fi
           printf '%s' "$merge_out" > result.json
