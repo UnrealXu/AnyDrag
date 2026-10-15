@@ -58,7 +58,6 @@ jobs:
             || { echo "::error::Could not determine upstream default branch for $upstream." >&2; exit 1; }
           echo "Source: $upstream ($source_branch)"
           echo "Target: $TARGET ($TARGET_BRANCH)"
-
           workdir=$(mktemp -d)
           cd "$workdir"
           git init -q
@@ -79,16 +78,25 @@ jobs:
           else
             behind_by=$(git rev-list --count "HEAD..$upstream_sha")
             echo "Commits behind upstream: $behind_by"
-            if ! git merge -q --no-commit "$upstream_sha"; then
-              git merge --abort || true
-              echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
-              exit 1
-            fi
-            if git diff --cached --name-only | grep -q '^\.github/workflows/'; then
-              echo "Upstream changed workflow files; keeping our own versions."
+
+            workflow_files=$(git diff --name-only "HEAD..$upstream_sha" -- '.github/workflows/' || true)
+            if [ -n "$workflow_files" ]; then
+              echo "Upstream touches workflow files; they will be excluded from the merge:"
+              echo "$workflow_files"
+              if ! git merge --no-commit "$upstream_sha"; then
+                git merge --abort || true
+                echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
+                exit 1
+              fi
               git checkout HEAD -- .github/workflows/
+              git commit -q --allow-empty -m "Sync upstream ${upstream}:${source_branch}"
+            else
+              if ! git merge -q "$upstream_sha" -m "Sync upstream ${upstream}:${source_branch}"; then
+                echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
+                exit 1
+              fi
             fi
-            git commit -q --allow-empty -m "Sync upstream ${upstream}:${source_branch}"
+
             git push -q origin "$TARGET_BRANCH"
             echo "Merge pushed."
             git fetch -q origin "$TARGET_BRANCH"
