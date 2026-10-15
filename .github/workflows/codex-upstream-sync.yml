@@ -16,7 +16,7 @@ jobs:
   sync:
     if: github.repository_owner == 'UnrealXu'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TARGET: ${{ github.repository }}
@@ -36,13 +36,62 @@ jobs:
       - name: Merge latest upstream default branch
         run: |
           set -euo pipefail
-          metadata=$(gh api "repos/$TARGET")
+
+          # Retry wrapper for `gh api`: transient failures (HTTP 5xx, network
+          # blips, secondary rate limits) are retried with exponential backoff.
+          # Merge conflicts (HTTP 409) are NOT retried — they need a human.
+          api_retry() {
+            local max_attempts=6 attempt=1 delay=15 out rc
+            while true; do
+              if out=$("$@" 2>&1); then
+                rc=0
+              else
+                rc=$?
+              fi
+              if [ "$rc" -eq 0 ]; then
+                printf '%s' "$out"
+                return 0
+              fi
+              if printf '%s' "$out" | grep -qiE '(^|[^0-9])409([^0-9]|$)|merge conflict'; then
+                printf '%s\n' "$out" >&2
+                return 9
+              fi
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "ERROR: API call failed after $max_attempts attempts: $*" >&2
+                printf '%s\n' "$out" >&2
+                return "$rc"
+              fi
+              echo "WARN: API call failed (attempt $attempt/$max_attempts), retrying in ${delay}s: $*" >&2
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
+
+          metadata=$(api_retry gh api "repos/$TARGET")
           upstream=$(jq -er '.parent.full_name' <<< "$metadata")
           source_branch=$(jq -er '.parent.default_branch' <<< "$metadata")
-          source_sha=$(gh api "repos/$upstream/commits/$source_branch" --jq '.sha')
-          gh api "repos/$TARGET/compare/$source_sha...$TARGET_BRANCH" > before.json
-          gh api --method POST "repos/$TARGET/merges" -f base="$TARGET_BRANCH" -f head="$source_sha" -f commit_message="Sync upstream $upstream:$source_branch" > result.json
-          gh api "repos/$TARGET/compare/$source_sha...$TARGET_BRANCH" > after.json
+          source_sha=$(api_retry gh api "repos/$upstream/commits/$source_branch" --jq '.sha')
+          api_retry gh api "repos/$TARGET/compare/$source_sha...$TARGET_BRANCH" > before.json
+
+          # Merge upstream into the fork branch.
+          # HTTP 204 (empty body) means already in sync — not an error.
+          set +e
+          merge_out=$(api_retry gh api --method POST "repos/$TARGET/merges" \
+            -f base="$TARGET_BRANCH" -f head="$source_sha" \
+            -f commit_message="Sync upstream $upstream:$source_branch" 2>&1)
+          merge_rc=$?
+          set -e
+          if [ "$merge_rc" -eq 9 ]; then
+            echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
+            exit 1
+          elif [ "$merge_rc" -ne 0 ]; then
+            echo "::error::Upstream merge failed after retries; see log above." >&2
+            exit 1
+          fi
+          printf '%s' "$merge_out" > result.json
+
+          api_retry gh api "repos/$TARGET/compare/$source_sha...$TARGET_BRANCH" > after.json
           jq -e '.behind_by == 0' after.json > /dev/null
           {
             echo '### Upstream sync verified'
