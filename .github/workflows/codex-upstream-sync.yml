@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   sync:
@@ -80,10 +79,16 @@ jobs:
           else
             behind_by=$(git rev-list --count "HEAD..$upstream_sha")
             echo "Commits behind upstream: $behind_by"
-            if ! git merge -q "$upstream_sha" -m "Sync upstream ${upstream}:${source_branch}"; then
+            if ! git merge -q --no-commit "$upstream_sha"; then
+              git merge --abort || true
               echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
               exit 1
             fi
+            if git diff --cached --name-only | grep -q '^\.github/workflows/'; then
+              echo "Upstream changed workflow files; keeping our own versions."
+              git checkout HEAD -- .github/workflows/
+            fi
+            git commit -q --allow-empty -m "Sync upstream ${upstream}:${source_branch}"
             git push -q origin "$TARGET_BRANCH"
             echo "Merge pushed."
             git fetch -q origin "$TARGET_BRANCH"
@@ -99,5 +104,6 @@ jobs:
             echo "Target: $TARGET ($TARGET_BRANCH)"
             echo "Upstream commit: $upstream_sha"
             echo "New upstream commits merged: $behind_by"
+            echo "Note: .github/workflows/ changes from upstream are skipped (kept our own)."
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Upstream sync complete."
