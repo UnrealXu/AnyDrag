@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  workflows: write
 
 jobs:
   sync:
@@ -59,23 +60,6 @@ jobs:
           echo "Source: $upstream ($source_branch)"
           echo "Target: $TARGET ($TARGET_BRANCH)"
 
-          source_sha=$(api_retry gh api "repos/$upstream/commits/$source_branch" --jq '.sha')
-          echo "Upstream commit: $source_sha"
-
-          before=$(api_retry gh api "repos/$TARGET/compare/$TARGET_BRANCH...$source_sha")
-          behind_by=$(jq -er '.behind_by' <<< "$before")
-          echo "Commits behind upstream: $behind_by"
-          if [ "$behind_by" -eq 0 ]; then
-            {
-              echo '### Upstream sync: already up to date'
-              echo "Source: $upstream ($source_branch)"
-              echo "Target: $TARGET ($TARGET_BRANCH)"
-              echo "Upstream commit: $source_sha"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "Already up to date."
-            exit 0
-          fi
-
           workdir=$(mktemp -d)
           cd "$workdir"
           git init -q
@@ -87,26 +71,33 @@ jobs:
           git fetch -q upstream "$source_branch"
           git checkout -q -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
 
-          if git merge-base --is-ancestor "upstream/$source_branch" HEAD; then
-            echo "Upstream already merged, nothing to do."
+          upstream_sha=$(git rev-parse "upstream/$source_branch")
+          echo "Upstream commit: $upstream_sha"
+
+          if git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            echo "Already up to date."
+            behind_by=0
           else
-            if ! git merge -q "upstream/$source_branch" -m "Sync upstream ${upstream}:${source_branch}"; then
+            behind_by=$(git rev-list --count "HEAD..$upstream_sha")
+            echo "Commits behind upstream: $behind_by"
+            if ! git merge -q "$upstream_sha" -m "Sync upstream ${upstream}:${source_branch}"; then
               echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
               exit 1
             fi
             git push -q origin "$TARGET_BRANCH"
             echo "Merge pushed."
+            git fetch -q origin "$TARGET_BRANCH"
+            if ! git merge-base --is-ancestor "$upstream_sha" "origin/$TARGET_BRANCH"; then
+              echo "::error::Sync verification failed: upstream commit not found on $TARGET/$TARGET_BRANCH after push." >&2
+              exit 1
+            fi
           fi
-
-          after=$(api_retry gh api "repos/$TARGET/compare/$TARGET_BRANCH...$source_sha")
-          jq -e '.behind_by == 0' <<< "$after" > /dev/null \
-            || { echo "::error::Sync verification failed: still behind upstream after merge." >&2; exit 1; }
 
           {
             echo '### Upstream sync verified'
             echo "Source: $upstream ($source_branch)"
             echo "Target: $TARGET ($TARGET_BRANCH)"
-            echo "Upstream commit: $source_sha"
+            echo "Upstream commit: $upstream_sha"
             echo "New upstream commits merged: $behind_by"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Upstream sync complete."
