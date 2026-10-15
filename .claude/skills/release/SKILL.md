@@ -78,7 +78,7 @@ git push origin main
 git push origin vYY.MM.<build>
 ```
 
-Tagging triggers `.github/workflows/build.yml` which: builds universal → signs (inside-out, including embedded Sparkle.framework) → notarizes → staples → DMG → signs DMG with Sparkle EdDSA → writes `appcast.xml` (embeds the WHOLE `RELEASE_NOTES.html` into `<description>` CDATA) → commits `appcast.xml` back to `main` (for legacy users still pinned to the raw.githubusercontent URL) → uploads `appcast.xml` + `latest.json` + DMG as release assets (so the new `releases/latest/download/appcast.xml` URL also resolves) → extracts this version's section into `release_body.html` → publishes GitHub Release with that as the body → fires `repository_dispatch` to `XueshiQiao/homebrew_tap` (event `update_cask`).
+Tagging triggers `.github/workflows/build.yml` which: builds universal → signs (inside-out, including embedded Sparkle.framework) → notarizes → staples → DMG → signs DMG with Sparkle EdDSA → writes `appcast.xml` (embeds the WHOLE `RELEASE_NOTES.html` into `<description>` CDATA) → commits `appcast.xml` back to `main` (for legacy users still pinned to the raw.githubusercontent URL) → uploads `appcast.xml` + `latest.json` + DMG as release assets (so the new `releases/latest/download/appcast.xml` URL also resolves) → extracts this version's section into `release_body.html` → publishes GitHub Release with that as the body → fires `repository_dispatch` to `XueshiQiao/homebrew-tap` (event `update_cask`).
 
 **Gotcha — tags don't follow rebase.** Hit live in earlier releases: pre-release prep had a `git pull --rebase` *after* `git tag`, so the tag stayed at the pre-rebase orphan commit. Pushing it triggered CI, the build/sign/notarize/DMG steps all succeeded, but the appcast step's final `git push origin HEAD:main` failed with `! [rejected] HEAD -> main`, the GitHub Release was never created, and `gh release view` returned "release not found." Recovery: delete the bad tag locally and remotely (`git push origin :refs/tags/vX; git tag -d vX`), retag at the correct commit, push again. **Prevention**: tag *after* rebase (which `bump-version.sh` enforces by requiring a clean tree minus `RELEASE_NOTES.html`), and run the sanity-check above before pushing.
 
@@ -97,22 +97,22 @@ If conclusion isn't `success`, stop and report. The cascades in Phase 5 won't fi
 
 ```bash
 # Tap regeneration of Casks/anydrag.rb
-gh run list --repo XueshiQiao/homebrew_tap --workflow update-casks.yml --limit 1 \
+gh run list --repo XueshiQiao/homebrew-tap --workflow update-casks.yml --limit 1 \
   --json status,conclusion,createdAt,displayTitle
-gh api repos/XueshiQiao/homebrew_tap/contents/Casks/anydrag.rb --jq '.content' | base64 -d | head -4
+gh api repos/XueshiQiao/homebrew-tap/contents/Casks/anydrag.rb --jq '.content' | base64 -d | head -4
 ```
 
 Should be `completed` / `success` within a few minutes after the AnyDrag CI completes.
 
 Requirements (one-time setup, already in place on this repo):
-- `HOMEBREW_TAP_PAT` secret — PAT with `Contents: Read and write` on `XueshiQiao/homebrew_tap`.
+- `HOMEBREW_TAP_PAT` secret — PAT with `Contents: Read and write` on `XueshiQiao/homebrew-tap`.
 
 The workflow prints an explicit `::warning::` if the PAT is missing, so silent-skip is detectable.
 
 To re-fire a missed dispatch manually:
 
 ```bash
-gh workflow run update-casks.yml --repo XueshiQiao/homebrew_tap -f app_token=anydrag
+gh workflow run update-casks.yml --repo XueshiQiao/homebrew-tap -f app_token=anydrag
 ```
 
 **The auto-generated cask omits the historical `zap trash:` block.** The shared generator template doesn't model zap paths; `brew uninstall --cask anydrag --zap` won't sweep `~/Library/Application Support/AnyDrag`, etc. Acceptable trade-off for the simpler-cask story; if it ever matters, extend `generate_homebrew_casks.py` to accept an optional `zap_paths` list in `apps.yml`.
@@ -142,7 +142,7 @@ gh issue close <N> --repo XueshiQiao/AnyDrag \
 
 Tell your human partner:
 - Release URL, CI run URL.
-- Tap workflow run URL + commit on `homebrew_tap`.
+- Tap workflow run URL + commit on `homebrew-tap`.
 - Issues closed with their numbers and one-line summaries.
 - Any deltas from a clean run.
 
@@ -154,6 +154,6 @@ Tell your human partner:
 - **Tags don't follow rebase** — see Phase 3 gotcha block.
 - **`RELEASE_NOTES.html` stays HTML — don't "upgrade" it to JSON/YAML.** It's not an internal data file; it's the rendered payload shown to end users in two places. Sparkle's update dialog renders the HTML natively (it's the appcast `<description>` CDATA), and GitHub renders the inline HTML in the Release body. JSON/YAML can't be displayed to users.
 - **`SUFeedURL` is currently the releases-asset URL (`/releases/latest/download/appcast.xml`)** — the HCL pattern, the cleaner one. v1.4.x users still update successfully because CI keeps dual-publishing (the legacy `Sign DMG and Generate Appcast` step still commits `appcast.xml` back to `main`, so `raw.githubusercontent.com/.../main/appcast.xml` keeps resolving). Once telemetry says everyone is past v1.4.x, the legacy commit-to-main step can be retired.
-- **Don't put the cask file in this repo.** It belongs in `XueshiQiao/homebrew_tap`, auto-generated by that repo's `update-casks.yml` workflow from the `latest.json` this release publishes. See the macos-app-scaffold blueprint for the full pipeline.
+- **Don't put the cask file in this repo.** It belongs in `XueshiQiao/homebrew-tap`, auto-generated by that repo's `update-casks.yml` workflow from the `latest.json` this release publishes. See the macos-app-scaffold blueprint for the full pipeline.
 - **`.agents/skills/release/SKILL.md` is stale (pre-CalVer-migration).** This file (`.claude/skills/release/SKILL.md`) is the source of truth. If your human partner wants the `.agents/` mirror back in sync, either symlink it or copy the content over.
 - **Codex review** per global rule: invoke after Phase 5 verifies, scope = files touched in this release. Skip only if the user has explicitly said "ignore codex" in this session.
